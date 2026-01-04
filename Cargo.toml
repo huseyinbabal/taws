@@ -85,7 +85,7 @@ aws-sdk-databasemigration = "1.70"
 aws-sdk-elasticbeanstalk = "1.70"
 
 # Async runtime
-tokio = { version = "1.42", features = ["full"] }
+tokio = { version = "1.49", features = ["full"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
