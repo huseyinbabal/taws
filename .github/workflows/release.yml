@@ -86,7 +86,7 @@ jobs:
         with:
           ref: v${{ inputs.version }}
       - name: Download Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: taws-*
           merge-multiple: true
