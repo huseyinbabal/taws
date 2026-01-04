@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 # TUI
 ratatui = "0.29"
-crossterm = "0.28"
+crossterm = "0.29"
 
 # AWS SDK
 aws-config = { version = "1.5", features = ["behavior-version-latest"] }
