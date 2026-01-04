@@ -1,100 +1,43 @@
 name: Release
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version to release (e.g. 1.0.0)'
-        required: true
-        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
 
 jobs:
-  bump-version:
+  release:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    outputs:
-      new_tag: v${{ inputs.version }}
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: Update Cargo.toml version
-        run: |
-          sed -i 's/^version = ".*"/version = "${{ inputs.version }}"/' Cargo.toml
-      - name: Commit and push changes
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Cargo.toml
-          git commit -m "chore: bump version to ${{ inputs.version }}"
-          git tag v${{ inputs.version }}
-          git push origin master --tags
 
-  build:
-    needs: bump-version
-    strategy:
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            suffix: ""
-          - target: x86_64-apple-darwin
-            os: macos-latest
-            suffix: ""
-          - target: aarch64-apple-darwin
-            os: macos-latest
-            suffix: ""
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            suffix: ".exe"
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: v${{ inputs.version }}
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-      - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
-      - name: Package
-        shell: bash
-        run: |
-          mkdir dist
-          cp target/${{ matrix.target }}/release/taws${{ matrix.suffix }} dist/
-          cd dist
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            7z a ../taws-${{ matrix.target }}.zip taws.exe
-          else
-            tar -czf ../taws-${{ matrix.target }}.tar.gz taws
-          fi
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: taws-${{ matrix.target }}
-          path: taws-${{ matrix.target }}.*
 
-  create-release:
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v6
+      - name: Install Zig
+        uses: goto-bus-stop/setup-zig@v2
         with:
-          ref: v${{ inputs.version }}
-      - name: Download Artifacts
-        uses: actions/download-artifact@v7
+          version: 0.13.0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          pattern: taws-*
-          merge-multiple: true
-      - name: Create Release
+          go-version: "1.22"
+
+      - name: Install GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: latest
+          install-only: true
+
+      - name: Run GoReleaser
+        run: goreleaser release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create v${{ inputs.version }} \
-            --title "v${{ inputs.version }}" \
-            --generate-notes \
-            taws-*

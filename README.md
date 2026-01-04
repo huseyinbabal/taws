@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/taws-logo.png" alt="taws" width="200"/>
+  <img src="assets/taws-logo.png" alt="taws" width="400"/>
 </p>
 
 # taws - Terminal UI for AWS

@@ -1,0 +1,67 @@
+version: 2
+
+project_name: taws
+
+before:
+  hooks:
+    - rustup default stable
+    - cargo install --locked cargo-zigbuild
+
+builds:
+  - id: taws
+    builder: rust
+    binary: taws
+    targets:
+      - x86_64-unknown-linux-gnu
+      - aarch64-unknown-linux-gnu
+      - x86_64-apple-darwin
+      - aarch64-apple-darwin
+      - x86_64-pc-windows-gnu
+    flags:
+      - --release
+
+archives:
+  - id: taws-archive
+    format: tar.gz
+    name_template: "{{ .ProjectName }}-{{ .Version }}-{{ .Os }}-{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
+
+release:
+  github:
+    owner: huseyinbabal
+    name: taws
+  draft: false
+  prerelease: auto
+  name_template: "v{{ .Version }}"
+
+brews:
+  - name: taws
+    repository:
+      owner: huseyinbabal
+      name: homebrew-tap
+    directory: Formula
+    homepage: "https://github.com/huseyinbabal/taws"
+    description: "Terminal UI for AWS"
+    license: "MIT"
+    install: |
+      bin.install "taws"
+    test: |
+      system "#{bin}/taws", "--version"
