@@ -94,4 +94,4 @@ serde_yaml = "0.9"
 
 # Utils
 anyhow = "1.0"
-dirs = "5.0"
+dirs = "6.0"
