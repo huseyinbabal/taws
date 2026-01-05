@@ -43,6 +43,9 @@ pub fn render(f: &mut Frame, app: &App) {
         Mode::Describe => {
             render_describe_view(f, app, chunks[1]);
         }
+        Mode::LogTail => {
+            render_log_tail_view(f, app, chunks[1]);
+        }
         _ => {
             render_main_content(f, app, chunks[1]);
         }
@@ -297,6 +300,100 @@ fn render_describe_view(f: &mut Frame, app: &App, area: Rect) {
     }
 }
 
+fn render_log_tail_view(f: &mut Frame, app: &App, area: Rect) {
+    let Some(ref state) = app.log_tail_state else {
+        let msg = Paragraph::new("No log tail state").style(Style::default().fg(Color::Red));
+        f.render_widget(msg, area);
+        return;
+    };
+
+    // Build title with stream info and status
+    let status = if state.paused { "PAUSED" } else { "LIVE" };
+    let status_color = if state.paused {
+        Color::Yellow
+    } else {
+        Color::Green
+    };
+    let title = format!(" {} | {} ", state.log_stream, status);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title(Span::styled(
+            title,
+            Style::default()
+                .fg(status_color)
+                .add_modifier(Modifier::BOLD),
+        ));
+
+    let inner_area = block.inner(area);
+    f.render_widget(block, area);
+
+    if state.events.is_empty() {
+        let msg = if let Some(ref err) = state.error {
+            Paragraph::new(format!("Error: {}", err)).style(Style::default().fg(Color::Red))
+        } else {
+            Paragraph::new("Waiting for log events...").style(Style::default().fg(Color::DarkGray))
+        };
+        f.render_widget(msg, inner_area);
+        return;
+    }
+
+    // Build lines from log events with syntax highlighting
+    let lines: Vec<Line> = state
+        .events
+        .iter()
+        .map(|event| {
+            let timestamp = crate::resource::format_log_timestamp(event.timestamp);
+            let message = &event.message;
+
+            // Determine color based on log level keywords
+            let msg_style = if message.contains("ERROR")
+                || message.contains("error")
+                || message.contains("Error")
+            {
+                Style::default().fg(Color::Red)
+            } else if message.contains("WARN")
+                || message.contains("warn")
+                || message.contains("Warning")
+            {
+                Style::default().fg(Color::Yellow)
+            } else if message.contains("INFO") || message.contains("info") {
+                Style::default().fg(Color::Green)
+            } else if message.contains("DEBUG") || message.contains("debug") {
+                Style::default().fg(Color::Blue)
+            } else {
+                Style::default().fg(Color::White)
+            };
+
+            Line::from(vec![
+                Span::styled(
+                    format!("[{}] ", timestamp),
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::styled(message.trim_end().to_string(), msg_style),
+            ])
+        })
+        .collect();
+
+    let total_lines = lines.len();
+    let visible_lines = inner_area.height as usize;
+    let max_scroll = total_lines.saturating_sub(visible_lines);
+    let scroll = state.scroll.min(max_scroll);
+
+    let paragraph = Paragraph::new(lines.clone()).scroll((scroll as u16, 0));
+    f.render_widget(paragraph, inner_area);
+
+    // Render scrollbar if content exceeds visible area
+    if total_lines > visible_lines {
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(Some("↑"))
+            .end_symbol(Some("↓"));
+        let mut scrollbar_state = ScrollbarState::new(max_scroll + visible_lines).position(scroll);
+        f.render_stateful_widget(scrollbar, inner_area, &mut scrollbar_state);
+    }
+}
+
 /// Apply JSON syntax highlighting to a single line
 fn highlight_json_line(line: &str) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = Vec::new();
@@ -449,6 +546,8 @@ fn render_crumb(f: &mut Frame, app: &App, area: Rect) {
         "Loading...".to_string()
     } else if app.mode == Mode::Describe {
         "j/k: scroll | q/d/Esc: back".to_string()
+    } else if app.mode == Mode::LogTail {
+        "j/k: scroll | G: bottom (live) | g: top | SPACE: pause | q: exit".to_string()
     } else if app.filter_active {
         "Type to filter | Enter: apply | Esc: clear".to_string()
     } else {

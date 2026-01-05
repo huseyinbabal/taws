@@ -765,6 +765,11 @@ where
             event::poll_sso_if_waiting(app).await;
         }
         
+        // Poll for new log events if in log tail mode
+        if app.mode == Mode::LogTail {
+            event::poll_logs_if_tailing(app).await;
+        }
+        
         // Auto-refresh every 5 seconds (only in Normal mode)
         if app.needs_refresh() {
             let _ = app.refresh_current().await;

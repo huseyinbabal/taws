@@ -20,6 +20,7 @@ pub enum Mode {
     Regions,     // Region selection
     Describe,    // Viewing JSON details of selected item
     SsoLogin,    // SSO login dialog
+    LogTail,     // Tailing CloudWatch logs
 }
 
 /// Pending action that requires confirmation
@@ -120,6 +121,9 @@ pub struct App {
     
     // Pagination state
     pub pagination: PaginationState,
+    
+    // Log tail state
+    pub log_tail_state: Option<LogTailState>,
 }
 
 /// Pagination state for resource listings
@@ -185,6 +189,36 @@ pub enum ProfileSwitchResult {
     SsoRequired { profile: String, sso_session: String },
 }
 
+/// A single log event from CloudWatch
+#[derive(Debug, Clone)]
+pub struct LogEvent {
+    pub timestamp: i64,
+    pub message: String,
+}
+
+/// State for log tailing mode
+#[derive(Debug, Clone)]
+pub struct LogTailState {
+    /// Log group name
+    pub log_group: String,
+    /// Log stream name
+    pub log_stream: String,
+    /// Collected log events (max 1000)
+    pub events: Vec<LogEvent>,
+    /// Scroll position in the log view
+    pub scroll: usize,
+    /// Token for fetching next batch of events
+    pub next_forward_token: Option<String>,
+    /// Whether to auto-scroll to bottom on new events
+    pub auto_scroll: bool,
+    /// Whether polling is paused
+    pub paused: bool,
+    /// Last time we polled for new events
+    pub last_poll: std::time::Instant,
+    /// Error message if polling failed
+    pub error: Option<String>,
+}
+
 impl App {
     /// Create App from pre-initialized components (used with splash screen)
     #[allow(clippy::too_many_arguments)]
@@ -235,6 +269,7 @@ impl App {
             endpoint_url,
             sso_state: None,
             pagination: PaginationState::default(),
+            log_tail_state: None,
         }
     }
     
@@ -1106,5 +1141,156 @@ impl App {
         }
 
         Ok(false)
+    }
+
+    // =========================================================================
+    // Log Tail Mode
+    // =========================================================================
+
+    /// Enter log tail mode for the selected log stream
+    pub async fn enter_log_tail_mode(&mut self) -> Result<()> {
+        // Get the selected log stream item
+        let Some(item) = self.selected_item().cloned() else {
+            return Ok(());
+        };
+
+        // Extract log group and stream names
+        let log_group = extract_json_value(&item, "logGroupName");
+        let log_stream = extract_json_value(&item, "logStreamName");
+
+        if log_group == "-" || log_stream == "-" {
+            self.error_message = Some("Could not get log group/stream name".to_string());
+            return Ok(());
+        }
+
+        // Initialize log tail state
+        self.log_tail_state = Some(LogTailState {
+            log_group: log_group.clone(),
+            log_stream: log_stream.clone(),
+            events: Vec::new(),
+            scroll: 0,
+            next_forward_token: None,
+            auto_scroll: true,
+            paused: false,
+            last_poll: std::time::Instant::now(),
+            error: None,
+        });
+
+        self.mode = Mode::LogTail;
+
+        // Fetch initial log events
+        self.poll_log_events().await?;
+
+        Ok(())
+    }
+
+    /// Poll for new log events
+    pub async fn poll_log_events(&mut self) -> Result<()> {
+        let Some(ref mut state) = self.log_tail_state else {
+            return Ok(());
+        };
+
+        if state.paused {
+            return Ok(());
+        }
+
+        // Build params for get_log_events
+        let mut params = serde_json::json!({
+            "log_group_name": [state.log_group.clone()],
+            "log_stream_name": [state.log_stream.clone()],
+        });
+
+        if let Some(ref token) = state.next_forward_token {
+            params["next_forward_token"] = serde_json::json!(token);
+        }
+
+        // Call the SDK
+        match crate::resource::sdk_dispatch::invoke_sdk(
+            "cloudwatchlogs",
+            "get_log_events",
+            &self.clients,
+            &params,
+        ).await {
+            Ok(response) => {
+                state.error = None;
+                
+                // Extract events
+                if let Some(events) = response.get("events").and_then(|v| v.as_array()) {
+                    for event in events {
+                        let timestamp = event.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
+                        let message = event.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        
+                        state.events.push(LogEvent { timestamp, message });
+                    }
+                    
+                    // Keep only last 1000 events
+                    if state.events.len() > 1000 {
+                        let drain_count = state.events.len() - 1000;
+                        state.events.drain(0..drain_count);
+                    }
+                }
+
+                // Update next forward token
+                if let Some(token) = response.get("nextForwardToken").and_then(|v| v.as_str()) {
+                    state.next_forward_token = Some(token.to_string());
+                }
+
+                // Auto-scroll to bottom if enabled
+                if state.auto_scroll && !state.events.is_empty() {
+                    state.scroll = state.events.len().saturating_sub(1);
+                }
+            }
+            Err(e) => {
+                state.error = Some(format!("Failed to fetch logs: {}", e));
+            }
+        }
+
+        state.last_poll = std::time::Instant::now();
+        Ok(())
+    }
+
+    /// Toggle pause state for log tailing
+    pub fn toggle_log_tail_pause(&mut self) {
+        if let Some(ref mut state) = self.log_tail_state {
+            state.paused = !state.paused;
+        }
+    }
+
+    /// Scroll log tail view up
+    pub fn log_tail_scroll_up(&mut self, amount: usize) {
+        if let Some(ref mut state) = self.log_tail_state {
+            state.scroll = state.scroll.saturating_sub(amount);
+            state.auto_scroll = false;
+        }
+    }
+
+    /// Scroll log tail view down
+    pub fn log_tail_scroll_down(&mut self, amount: usize) {
+        if let Some(ref mut state) = self.log_tail_state {
+            let max_scroll = state.events.len().saturating_sub(1);
+            state.scroll = (state.scroll + amount).min(max_scroll);
+        }
+    }
+
+    /// Scroll log tail view to top
+    pub fn log_tail_scroll_to_top(&mut self) {
+        if let Some(ref mut state) = self.log_tail_state {
+            state.scroll = 0;
+            state.auto_scroll = false;
+        }
+    }
+
+    /// Scroll log tail view to bottom and enable auto-scroll
+    pub fn log_tail_scroll_to_bottom(&mut self) {
+        if let Some(ref mut state) = self.log_tail_state {
+            state.scroll = state.events.len().saturating_sub(1);
+            state.auto_scroll = true;
+        }
+    }
+
+    /// Exit log tail mode
+    pub fn exit_log_tail_mode(&mut self) {
+        self.log_tail_state = None;
+        self.mode = Mode::Normal;
     }
 }

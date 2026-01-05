@@ -43,6 +43,37 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
+/// Format epoch milliseconds to human-readable date string
+fn format_epoch_millis(millis: i64) -> String {
+    use std::time::{Duration, UNIX_EPOCH};
+    
+    let duration = Duration::from_millis(millis as u64);
+    let datetime = UNIX_EPOCH + duration;
+    
+    // Convert to a simple date/time string
+    if let Ok(elapsed) = datetime.duration_since(UNIX_EPOCH) {
+        let secs = elapsed.as_secs();
+        let days = secs / 86400;
+        let years = 1970 + days / 365;
+        let remaining_days = days % 365;
+        let months = remaining_days / 30;
+        let day = remaining_days % 30 + 1;
+        let hours = (secs % 86400) / 3600;
+        let minutes = (secs % 3600) / 60;
+        let seconds = secs % 60;
+        
+        format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", 
+            years, months + 1, day, hours, minutes, seconds)
+    } else {
+        "-".to_string()
+    }
+}
+
+/// Format epoch milliseconds to human-readable date string (public for log tail UI)
+pub fn format_log_timestamp(millis: i64) -> String {
+    format_epoch_millis(millis)
+}
+
 /// Parse XML list response from Query protocol APIs
 #[allow(dead_code)]
 fn parse_query_list(xml: &str, list_key: &str, item_key: &str) -> Result<Vec<Value>> {
@@ -1254,6 +1285,102 @@ pub async fn invoke_sdk(
             }).collect();
             
             Ok(json!({ "log_groups": result }))
+        }
+
+        ("cloudwatchlogs", "describe_log_streams") => {
+            let log_group_name = extract_param(params, "log_group_name");
+            
+            // Build request with pagination support
+            let page_token = params.get("_page_token").and_then(|v| v.as_str());
+            let request_body = if let Some(token) = page_token {
+                json!({
+                    "logGroupName": log_group_name,
+                    "orderBy": "LastEventTime",
+                    "descending": true,
+                    "limit": 50,
+                    "nextToken": token
+                }).to_string()
+            } else {
+                json!({
+                    "logGroupName": log_group_name,
+                    "orderBy": "LastEventTime",
+                    "descending": true,
+                    "limit": 50
+                }).to_string()
+            };
+            
+            let response = clients.http.json_request("logs", "DescribeLogStreams", &request_body).await?;
+            let json: Value = serde_json::from_str(&response)?;
+            
+            let log_streams = json.get("logStreams").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+            let result: Vec<Value> = log_streams.iter().map(|ls| {
+                // Format timestamps as human-readable dates
+                let last_event = ls.get("lastEventTimestamp")
+                    .and_then(|v| v.as_i64())
+                    .map(|ts| format_epoch_millis(ts))
+                    .unwrap_or("-".to_string());
+                let first_event = ls.get("firstEventTimestamp")
+                    .and_then(|v| v.as_i64())
+                    .map(|ts| format_epoch_millis(ts))
+                    .unwrap_or("-".to_string());
+                    
+                json!({
+                    "logStreamName": ls.get("logStreamName").and_then(|v| v.as_str()).unwrap_or("-"),
+                    "logGroupName": log_group_name,
+                    "lastEventTime": last_event,
+                    "firstEventTime": first_event,
+                    "storedBytes": format_bytes(ls.get("storedBytes").and_then(|v| v.as_u64()).unwrap_or(0)),
+                    "lastEventTimestamp": ls.get("lastEventTimestamp").and_then(|v| v.as_i64()).unwrap_or(0),
+                })
+            }).collect();
+            
+            // Include next_token in response for pagination
+            let next_token = json.get("nextToken").and_then(|v| v.as_str());
+            let mut response = json!({ "log_streams": result });
+            if let Some(token) = next_token {
+                response["_next_token"] = json!(token);
+            }
+            
+            Ok(response)
+        }
+
+        ("cloudwatchlogs", "get_log_events") => {
+            let log_group_name = extract_param(params, "log_group_name");
+            let log_stream_name = extract_param(params, "log_stream_name");
+            let next_token = params.get("next_forward_token").and_then(|v| v.as_str());
+            let start_time = params.get("start_time").and_then(|v| v.as_i64());
+            
+            let mut request = json!({
+                "logGroupName": log_group_name,
+                "logStreamName": log_stream_name,
+                "startFromHead": false,
+                "limit": 100
+            });
+            
+            if let Some(token) = next_token {
+                request["nextToken"] = json!(token);
+            }
+            if let Some(ts) = start_time {
+                request["startTime"] = json!(ts);
+            }
+            
+            let response = clients.http.json_request("logs", "GetLogEvents", &request.to_string()).await?;
+            let json: Value = serde_json::from_str(&response)?;
+            
+            let events = json.get("events").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+            let result: Vec<Value> = events.iter().map(|ev| {
+                json!({
+                    "timestamp": ev.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0),
+                    "message": ev.get("message").and_then(|v| v.as_str()).unwrap_or(""),
+                    "ingestionTime": ev.get("ingestionTime").and_then(|v| v.as_i64()).unwrap_or(0),
+                })
+            }).collect();
+            
+            Ok(json!({
+                "events": result,
+                "nextForwardToken": json.get("nextForwardToken").and_then(|v| v.as_str()),
+                "nextBackwardToken": json.get("nextBackwardToken").and_then(|v| v.as_str())
+            }))
         }
 
         // =====================================================================

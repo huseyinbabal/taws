@@ -24,6 +24,7 @@ async fn handle_key_event(app: &mut App, key: KeyEvent) -> Result<bool> {
         Mode::Profiles => handle_profiles_mode(app, key).await,
         Mode::Regions => handle_regions_mode(app, key).await,
         Mode::SsoLogin => handle_sso_login_mode(app, key).await,
+        Mode::LogTail => handle_log_tail_mode(app, key).await,
     }
 }
 
@@ -195,8 +196,12 @@ async fn handle_normal_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
                                 if let Some(item) = app.selected_item() {
                                     let id = crate::resource::extract_json_value(item, &resource.id_field);
                                     if id != "-" && !id.is_empty() {
+                                        // Special handling for log tailing action
+                                        if action.sdk_method == "tail_logs" {
+                                            app.enter_log_tail_mode().await?;
+                                            handled = true;
                                         // Block action in readonly mode
-                                        if app.readonly {
+                                        } else if app.readonly {
                                             app.show_warning("This operation is not supported in read-only mode");
                                             handled = true;
                                         } else if action.requires_confirm() {
@@ -635,5 +640,61 @@ pub async fn poll_sso_if_waiting(app: &mut App) {
                 });
             }
         }
+    }
+}
+
+async fn handle_log_tail_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
+    match key.code {
+        // Exit log tail mode
+        KeyCode::Esc | KeyCode::Char('q') => {
+            app.exit_log_tail_mode();
+        }
+        // Scroll up
+        KeyCode::Char('k') | KeyCode::Up => {
+            app.log_tail_scroll_up(1);
+        }
+        // Scroll down
+        KeyCode::Char('j') | KeyCode::Down => {
+            app.log_tail_scroll_down(1);
+        }
+        // Page up
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.log_tail_scroll_up(10);
+        }
+        // Page down
+        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.log_tail_scroll_down(10);
+        }
+        // Go to top
+        KeyCode::Char('g') | KeyCode::Home => {
+            app.log_tail_scroll_to_top();
+        }
+        // Go to bottom (and enable auto-scroll)
+        KeyCode::Char('G') | KeyCode::End => {
+            app.log_tail_scroll_to_bottom();
+        }
+        // Toggle pause
+        KeyCode::Char(' ') => {
+            app.toggle_log_tail_pause();
+        }
+        _ => {}
+    }
+    Ok(false)
+}
+
+/// Poll for new log events if in log tail mode
+pub async fn poll_logs_if_tailing(app: &mut App) {
+    if app.mode != Mode::LogTail {
+        return;
+    }
+
+    let should_poll = if let Some(ref state) = app.log_tail_state {
+        !state.paused && state.last_poll.elapsed() >= Duration::from_secs(2)
+    } else {
+        false
+    };
+
+    if should_poll {
+        let _ = app.poll_log_events().await;
     }
 }

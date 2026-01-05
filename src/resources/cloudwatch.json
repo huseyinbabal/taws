@@ -15,8 +15,41 @@
         { "header": "RETENTION (DAYS)", "json_path": "retentionInDays", "width": 18 },
         { "header": "CREATED", "json_path": "creationTime", "width": 25 }
       ],
-      "sub_resources": [],
+      "sub_resources": [
+        {
+          "shortcut": "s",
+          "display_name": "Log Streams",
+          "resource_key": "cloudwatch-log-streams",
+          "parent_id_field": "logGroupName",
+          "filter_param": "log_group_name"
+        }
+      ],
       "actions": []
+    },
+    "cloudwatch-log-streams": {
+      "display_name": "Log Streams",
+      "service": "cloudwatchlogs",
+      "sdk_method": "describe_log_streams",
+      "sdk_method_params": {},
+      "response_path": "log_streams",
+      "id_field": "logStreamName",
+      "name_field": "logStreamName",
+      "is_global": false,
+      "columns": [
+        { "header": "STREAM NAME", "json_path": "logStreamName", "width": 45 },
+        { "header": "LAST EVENT", "json_path": "lastEventTime", "width": 22 },
+        { "header": "SIZE", "json_path": "storedBytes", "width": 12 },
+        { "header": "FIRST EVENT", "json_path": "firstEventTime", "width": 21 }
+      ],
+      "sub_resources": [],
+      "actions": [
+        {
+          "key": "t",
+          "display_name": "Tail Logs",
+          "shortcut": "t",
+          "sdk_method": "tail_logs"
+        }
+      ]
     }
   }
 }
