@@ -93,7 +93,16 @@ cargo install taws
 
 ### From Source
 
-taws is built with Rust. Make sure you have Rust 1.70+ installed.
+taws is built with Rust. Make sure you have Rust 1.70+ installed, along with a C compiler and linker.
+
+#### Build Dependencies
+
+| Platform | Install Command |
+|----------|-----------------|
+| **Amazon Linux / RHEL / Fedora** | `sudo yum groupinstall "Development Tools" -y` |
+| **Ubuntu / Debian** | `sudo apt update && sudo apt install build-essential -y` |
+| **macOS** | `xcode-select --install` |
+| **Windows** | Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) |
 
 ```bash
 # Clone the repository
