@@ -13,6 +13,30 @@ use tracing::{debug, trace, warn};
 
 use super::credentials::Credentials;
 
+/// Extract region from S3 URL patterns like:
+/// - https://bucket.s3.us-west-1.amazonaws.com/
+/// - https://bucket.s3-us-west-1.amazonaws.com/
+fn extract_region_from_s3_url(url: &str) -> Option<String> {
+    // Look for patterns like "s3.us-west-1.amazonaws.com" or "s3-us-west-1.amazonaws.com"
+    let url_lower = url.to_lowercase();
+    
+    // Find "s3." or "s3-" followed by region
+    for prefix in &["s3.", "s3-"] {
+        if let Some(pos) = url_lower.find(prefix) {
+            let after_prefix = &url_lower[pos + prefix.len()..];
+            // Region format: xx-xxxx-N (e.g., us-west-1, eu-central-1, ap-southeast-2)
+            if let Some(end) = after_prefix.find(".amazonaws.com") {
+                let region = &after_prefix[..end];
+                // Validate it looks like a region (contains at least one hyphen and ends with digit)
+                if region.contains('-') && region.chars().last().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                    return Some(region.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Mask sensitive credential values for logging
 fn mask_credential(value: &str) -> String {
     if value.len() <= 8 {
@@ -483,6 +507,78 @@ impl AwsHttpClient {
         self.signed_request(&service, method, &url, body.unwrap_or(""), None).await
     }
 
+    /// Make a REST-XML request to a specific S3 bucket region
+    /// This is needed because S3 buckets exist in specific regions and
+    /// requests must be sent to the correct regional endpoint
+    pub async fn rest_xml_request_s3_bucket(
+        &self,
+        method: &str,
+        bucket: &str,
+        path: &str,
+        body: Option<&str>,
+        bucket_region: &str,
+    ) -> Result<String> {
+        debug!("REST-XML S3 bucket request: bucket={}, region={}, method={}, path={}", 
+               bucket, bucket_region, method, path);
+
+        let service = get_service("s3")
+            .ok_or_else(|| anyhow!("Unknown service: s3"))?;
+
+        // Build S3 regional endpoint
+        let endpoint = format!("https://{}.s3.{}.amazonaws.com", bucket, bucket_region);
+        let url = format!("{}{}", endpoint, path);
+        debug!("URL: {}", url);
+
+        self.signed_request_with_region(&service, method, &url, body.unwrap_or(""), None, bucket_region).await
+    }
+
+    /// Get the region for an S3 bucket using HEAD request to check x-amz-bucket-region header
+    pub async fn get_bucket_region(&self, bucket: &str) -> Result<String> {
+        debug!("Getting bucket region for: {}", bucket);
+        
+        // Use HEAD request to any S3 endpoint - AWS returns x-amz-bucket-region header
+        // even for 301/400 responses, which tells us the correct region
+        let url = format!("https://{}.s3.amazonaws.com/", bucket);
+        
+        let response = self.http_client
+            .head(&url)
+            .send()
+            .await?;
+        
+        // Check x-amz-bucket-region header (present in both success and redirect responses)
+        if let Some(region) = response.headers().get("x-amz-bucket-region") {
+            if let Ok(region_str) = region.to_str() {
+                debug!("Bucket {} is in region {} (from x-amz-bucket-region header)", bucket, region_str);
+                return Ok(region_str.to_string());
+            }
+        }
+        
+        // Fallback: if we got a 200, bucket is accessible from us-east-1
+        if response.status().is_success() {
+            debug!("Bucket {} accessible from us-east-1 (HEAD succeeded)", bucket);
+            return Ok("us-east-1".to_string());
+        }
+        
+        // If we got a redirect, try to parse the region from the Location header or body
+        if response.status() == reqwest::StatusCode::MOVED_PERMANENTLY {
+            // Check Location header for region hint
+            if let Some(location) = response.headers().get("location") {
+                if let Ok(loc_str) = location.to_str() {
+                    // Location might be like: https://bucket.s3.us-west-1.amazonaws.com/
+                    // or https://bucket.s3-us-west-1.amazonaws.com/
+                    if let Some(region) = extract_region_from_s3_url(loc_str) {
+                        debug!("Bucket {} is in region {} (from Location header)", bucket, region);
+                        return Ok(region);
+                    }
+                }
+            }
+        }
+        
+        // Default to us-east-1
+        debug!("Bucket {} defaulting to us-east-1", bucket);
+        Ok("us-east-1".to_string())
+    }
+
     /// Make a signed request
     async fn signed_request(
         &self,
@@ -539,11 +635,20 @@ impl AwsHttpClient {
             .into();
 
         // Create signable request
-        let signable_body = if body.is_empty() {
+        // For S3, use UnsignedPayload for GET/DELETE requests without body
+        let is_s3_unsigned = service.signing_name == "s3" && body.is_empty() && (method == "GET" || method == "DELETE");
+        let signable_body = if is_s3_unsigned {
+            SignableBody::UnsignedPayload
+        } else if body.is_empty() {
             SignableBody::Bytes(&[])
         } else {
             SignableBody::Bytes(body.as_bytes())
         };
+        
+        // S3 requires x-amz-content-sha256 header
+        if is_s3_unsigned {
+            headers.push(("x-amz-content-sha256".to_string(), "UNSIGNED-PAYLOAD".to_string()));
+        }
 
         let signable_request = SignableRequest::new(
             method,
@@ -569,6 +674,11 @@ impl AwsHttpClient {
         for (name, value) in signing_instructions.headers() {
             request = request.header(name.to_string(), value.to_string());
         }
+        
+        // S3 requires x-amz-content-sha256 header explicitly
+        if is_s3_unsigned {
+            request = request.header("x-amz-content-sha256", "UNSIGNED-PAYLOAD");
+        }
 
         // Apply extra headers
         if let Some(extra) = extra_headers {
@@ -584,6 +694,129 @@ impl AwsHttpClient {
 
         // Send request
         trace!("Sending {} request to {}", method, url);
+        let response = request.send().await?;
+        let status = response.status();
+        let text = response.text().await?;
+
+        debug!("Response status: {}", status);
+        trace!("Response body (first 2000 chars): {}", &text[..text.len().min(2000)]);
+
+        if !status.is_success() {
+            warn!("AWS request failed: status={}, body={}", status, &text[..text.len().min(500)]);
+            return Err(anyhow!("AWS request failed ({}): {}", status, text));
+        }
+
+        Ok(text)
+    }
+
+    /// Make a signed request with explicit region override
+    /// Used for S3 bucket operations where the bucket may be in a different region
+    async fn signed_request_with_region(
+        &self,
+        service: &ServiceDefinition,
+        method: &str,
+        url: &str,
+        body: &str,
+        extra_headers: Option<HashMap<String, String>>,
+        region: &str,
+    ) -> Result<String> {
+        // Parse URL
+        let parsed_url = url::Url::parse(url)?;
+        let host = parsed_url.host_str().ok_or_else(|| anyhow!("Invalid URL"))?;
+        let path_and_query = if let Some(query) = parsed_url.query() {
+            format!("{}?{}", parsed_url.path(), query)
+        } else {
+            parsed_url.path().to_string()
+        };
+
+        // Build headers
+        let mut headers = vec![
+            ("host".to_string(), host.to_string()),
+        ];
+        
+        if let Some(extra) = &extra_headers {
+            for (k, v) in extra {
+                headers.push((k.to_lowercase(), v.clone()));
+            }
+        }
+
+        // Create identity for signing
+        let creds = aws_credential_types::Credentials::new(
+            &self.credentials.access_key_id,
+            &self.credentials.secret_access_key,
+            self.credentials.session_token.clone(),
+            None,
+            "taws",
+        );
+        let identity: Identity = creds.into();
+        
+        // Create signing params with explicit region
+        let signing_params = SigningParams::builder()
+            .identity(&identity)
+            .region(region)
+            .name(service.signing_name)
+            .time(SystemTime::now())
+            .settings(SigningSettings::default())
+            .build()?
+            .into();
+
+        // Create signable request
+        let is_s3_unsigned = service.signing_name == "s3" && body.is_empty() && (method == "GET" || method == "DELETE");
+        let signable_body = if is_s3_unsigned {
+            SignableBody::UnsignedPayload
+        } else if body.is_empty() {
+            SignableBody::Bytes(&[])
+        } else {
+            SignableBody::Bytes(body.as_bytes())
+        };
+        
+        if is_s3_unsigned {
+            headers.push(("x-amz-content-sha256".to_string(), "UNSIGNED-PAYLOAD".to_string()));
+        }
+
+        let signable_request = SignableRequest::new(
+            method,
+            &path_and_query,
+            headers.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+            signable_body,
+        )?;
+
+        // Sign the request
+        let (signing_instructions, _signature) = sign(signable_request, &signing_params)?.into_parts();
+
+        // Build the actual request
+        let mut request = match method {
+            "GET" => self.http_client.get(url),
+            "POST" => self.http_client.post(url),
+            "PUT" => self.http_client.put(url),
+            "DELETE" => self.http_client.delete(url),
+            "PATCH" => self.http_client.patch(url),
+            _ => return Err(anyhow!("Unsupported HTTP method: {}", method)),
+        };
+
+        // Apply signing headers
+        for (name, value) in signing_instructions.headers() {
+            request = request.header(name.to_string(), value.to_string());
+        }
+        
+        if is_s3_unsigned {
+            request = request.header("x-amz-content-sha256", "UNSIGNED-PAYLOAD");
+        }
+
+        // Apply extra headers
+        if let Some(extra) = extra_headers {
+            for (k, v) in extra {
+                request = request.header(&k, &v);
+            }
+        }
+
+        // Set body if present
+        if !body.is_empty() {
+            request = request.body(body.to_string());
+        }
+
+        // Send request
+        trace!("Sending {} request to {} (region: {})", method, url, region);
         let response = request.send().await?;
         let status = response.status();
         let text = response.text().await?;

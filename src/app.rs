@@ -296,6 +296,7 @@ impl App {
     }
 
     /// Build AWS filters from parent context
+    /// For S3, this collects both bucket_names and prefix from navigation stack
     fn build_filters_from_context(&self) -> Vec<ResourceFilter> {
         let Some(parent) = &self.parent_context else {
             return Vec::new();
@@ -305,7 +306,60 @@ impl App {
             return Vec::new();
         };
         
-        // Find matching sub-resource definition in parent
+        let mut filters = Vec::new();
+        
+        // For S3 objects, we need to collect filters from entire navigation stack
+        // to preserve bucket_names while adding prefix
+        if self.current_resource_key == "s3-objects" {
+            // First, check navigation stack for bucket_names (from s3-buckets -> s3-objects)
+            for ctx in &self.navigation_stack {
+                if ctx.resource_key == "s3-buckets" {
+                    if let Some(parent_resource) = get_resource(&ctx.resource_key) {
+                        for sub in &parent_resource.sub_resources {
+                            if sub.resource_key == "s3-objects" {
+                                let bucket_name = extract_json_value(&ctx.item, &sub.parent_id_field);
+                                if bucket_name != "-" {
+                                    filters.push(ResourceFilter::new(&sub.filter_param, vec![bucket_name]));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // If parent is s3-buckets, get bucket_names from it
+            if parent.resource_key == "s3-buckets" {
+                if let Some(parent_resource) = get_resource(&parent.resource_key) {
+                    for sub in &parent_resource.sub_resources {
+                        if sub.resource_key == "s3-objects" {
+                            let bucket_name = extract_json_value(&parent.item, &sub.parent_id_field);
+                            if bucket_name != "-" {
+                                filters.push(ResourceFilter::new(&sub.filter_param, vec![bucket_name]));
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // If parent is s3-objects (folder navigation), get prefix from it
+            if parent.resource_key == "s3-objects" {
+                // Check if selected item is a folder
+                let is_folder = parent.item.get("IsFolder")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                
+                if is_folder {
+                    let prefix = extract_json_value(&parent.item, "Key");
+                    if prefix != "-" {
+                        filters.push(ResourceFilter::new("prefix", vec![prefix]));
+                    }
+                }
+            }
+            
+            return filters;
+        }
+        
+        // Default behavior for other resources
         if let Some(parent_resource) = get_resource(&parent.resource_key) {
             for sub in &parent_resource.sub_resources {
                 if sub.resource_key == self.current_resource_key {
@@ -736,6 +790,19 @@ impl App {
                 sub_resource_key, self.current_resource_key
             ));
             return Ok(());
+        }
+        
+        // Special handling for S3 folder navigation
+        // Only allow navigating into folders, not files
+        if self.current_resource_key == "s3-objects" && sub_resource_key == "s3-objects" {
+            let is_folder = selected_item.get("IsFolder")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            
+            if !is_folder {
+                // Don't navigate into files - could show a message or do nothing
+                return Ok(());
+            }
         }
         
         // Get display name for parent

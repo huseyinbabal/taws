@@ -13,10 +13,32 @@
         { "header": "BUCKET NAME", "json_path": "Name", "width": 40 },
         { "header": "CREATED", "json_path": "CreationDate", "width": 25 }
       ],
-      "sub_resources": [],
+      "sub_resources": [
+        { "resource_key": "s3-objects", "display_name": "Objects", "shortcut": "o", "parent_id_field": "Name", "filter_param": "bucket_names" }
+      ],
       "actions": [
         { "key": "ctrl+d", "display_name": "Delete Bucket", "shortcut": "ctrl+d", "sdk_method": "delete_bucket", "confirm": { "message": "Delete S3 bucket", "default_yes": false, "destructive": true } }
       ]
+    },
+    "s3-objects": {
+      "display_name": "S3 Objects",
+      "service": "s3",
+      "sdk_method": "list_objects_v2",
+      "sdk_method_params": {},
+      "response_path": "objects",
+      "id_field": "Key",
+      "name_field": "DisplayName",
+      "is_global": false,
+      "columns": [
+        { "header": "NAME", "json_path": "DisplayName", "width": 50 },
+        { "header": "SIZE", "json_path": "Size", "width": 12 },
+        { "header": "LAST MODIFIED", "json_path": "LastModified", "width": 22 },
+        { "header": "STORAGE CLASS", "json_path": "StorageClass", "width": 15 }
+      ],
+      "sub_resources": [
+        { "resource_key": "s3-objects", "display_name": "Open Folder", "shortcut": "o", "parent_id_field": "Key", "filter_param": "prefix" }
+      ],
+      "actions": []
     }
   }
 }

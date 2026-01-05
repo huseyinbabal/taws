@@ -7,6 +7,7 @@ use crate::aws::client::AwsClients;
 use crate::aws::http::xml_to_json;
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
+use tracing::debug;
 
 // =============================================================================
 // Helper Functions
@@ -20,6 +21,26 @@ fn extract_param(params: &Value, key: &str) -> String {
              .or_else(|| v.as_array().and_then(|a| a.first()).and_then(|v| v.as_str()).map(|s| s.to_string()))
         })
         .unwrap_or_default()
+}
+
+/// Format bytes into human-readable format
+fn format_bytes(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+    const TB: u64 = GB * 1024;
+    
+    if bytes >= TB {
+        format!("{:.1} TB", bytes as f64 / TB as f64)
+    } else if bytes >= GB {
+        format!("{:.1} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.1} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.1} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{} B", bytes)
+    }
 }
 
 /// Parse XML list response from Query protocol APIs
@@ -321,11 +342,50 @@ pub async fn describe_resource(
         }
         
         "s3-buckets" => {
-            // S3 doesn't have a single bucket describe, return basic info
-            Ok(json!({
+            // S3 doesn't have a single describe API, so we fetch multiple properties
+            let mut result = json!({
                 "BucketName": resource_id,
-                "Note": "Use AWS Console for full bucket details"
-            }))
+            });
+            
+            // Get bucket location first (this determines the region for other calls)
+            let bucket_region = clients.http.get_bucket_region(resource_id).await
+                .unwrap_or_else(|_| "us-east-1".to_string());
+            result["Region"] = json!(&bucket_region);
+            
+            // Get bucket versioning (using the correct regional endpoint)
+            if let Ok(xml) = clients.http.rest_xml_request_s3_bucket(
+                "GET",
+                resource_id,
+                "?versioning",
+                None,
+                &bucket_region
+            ).await {
+                if let Ok(json) = xml_to_json(&xml) {
+                    let status = json.pointer("/VersioningConfiguration/Status")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Disabled");
+                    result["Versioning"] = json!(status);
+                }
+            }
+            
+            // Get bucket encryption (using the correct regional endpoint)
+            if let Ok(xml) = clients.http.rest_xml_request_s3_bucket(
+                "GET",
+                resource_id,
+                "?encryption",
+                None,
+                &bucket_region
+            ).await {
+                if let Ok(json) = xml_to_json(&xml) {
+                    if let Some(rules) = json.pointer("/ServerSideEncryptionConfiguration/Rule") {
+                        result["Encryption"] = rules.clone();
+                    }
+                }
+            } else {
+                result["Encryption"] = json!("None");
+            }
+            
+            Ok(result)
         }
         
         "lambda-functions" => {
@@ -812,6 +872,94 @@ pub async fn invoke_sdk(
             }).collect();
             
             Ok(json!({ "buckets": result }))
+        }
+        
+        ("s3", "list_objects_v2") => {
+            // Get bucket name from params
+            let bucket = params.get("bucket_names")
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow!("Bucket name required"))?;
+            
+            // Get prefix for folder navigation (optional)
+            // Can be either a string or array (from ResourceFilter)
+            let prefix = params.get("prefix")
+                .map(|v| {
+                    if let Some(s) = v.as_str() {
+                        s.to_string()
+                    } else if let Some(arr) = v.as_array() {
+                        arr.first().and_then(|v| v.as_str()).unwrap_or("").to_string()
+                    } else {
+                        String::new()
+                    }
+                })
+                .unwrap_or_default();
+            
+            // First, get the bucket's region (S3 buckets are region-specific)
+            let bucket_region = clients.http.get_bucket_region(bucket).await?;
+            debug!("Bucket {} is in region {}", bucket, bucket_region);
+            
+            let path = if prefix.is_empty() {
+                "?list-type=2&delimiter=/".to_string()
+            } else {
+                format!("?list-type=2&delimiter=/&prefix={}", urlencoding::encode(&prefix))
+            };
+            
+            let xml = clients.http.rest_xml_request_s3_bucket("GET", bucket, &path, None, &bucket_region).await?;
+            let json = xml_to_json(&xml)?;
+            
+            let mut objects: Vec<Value> = vec![];
+            
+            // Add common prefixes (folders)
+            if let Some(prefixes) = json.pointer("/ListBucketResult/CommonPrefixes") {
+                let prefix_list = match prefixes {
+                    Value::Array(arr) => arr.clone(),
+                    obj @ Value::Object(_) => vec![obj.clone()],
+                    _ => vec![],
+                };
+                for p in prefix_list {
+                    let prefix_val = p.pointer("/Prefix").and_then(|v| v.as_str()).unwrap_or("-");
+                    let display_name = prefix_val.trim_end_matches('/').rsplit('/').next().unwrap_or(prefix_val);
+                    objects.push(json!({
+                        "Key": prefix_val,
+                        "DisplayName": format!("{}/", display_name),
+                        "Size": "-",
+                        "LastModified": "-",
+                        "StorageClass": "FOLDER",
+                        "IsFolder": true
+                    }));
+                }
+            }
+            
+            // Add objects (files)
+            if let Some(contents) = json.pointer("/ListBucketResult/Contents") {
+                let content_list = match contents {
+                    Value::Array(arr) => arr.clone(),
+                    obj @ Value::Object(_) => vec![obj.clone()],
+                    _ => vec![],
+                };
+                for obj in content_list {
+                    let key = obj.pointer("/Key").and_then(|v| v.as_str()).unwrap_or("-");
+                    // Skip if key equals prefix (the folder itself)
+                    if key == prefix {
+                        continue;
+                    }
+                    let display_name = key.rsplit('/').next().unwrap_or(key);
+                    let size = obj.pointer("/Size").and_then(|v| v.as_str()).unwrap_or("0");
+                    let size_formatted = format_bytes(size.parse::<u64>().unwrap_or(0));
+                    objects.push(json!({
+                        "Key": key,
+                        "DisplayName": display_name,
+                        "Size": size_formatted,
+                        "LastModified": obj.pointer("/LastModified").and_then(|v| v.as_str()).unwrap_or("-"),
+                        "StorageClass": obj.pointer("/StorageClass").and_then(|v| v.as_str()).unwrap_or("STANDARD"),
+                        "IsFolder": false
+                    }));
+                }
+            }
+            
+            Ok(json!({ "objects": objects }))
         }
 
         // =====================================================================
