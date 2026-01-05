@@ -47,6 +47,13 @@
 brew install huseyinbabal/tap/taws
 ```
 
+### Scoop (Windows)
+
+```powershell
+scoop bucket add huseyinbabal https://github.com/huseyinbabal/scoop-bucket
+scoop install taws
+```
+
 ### Download Pre-built Binaries
 
 Download the latest release from the [Releases page](https://github.com/huseyinbabal/taws/releases/latest).

@@ -241,3 +241,67 @@ jobs:
           git add Formula/taws.rb
           git commit -m "Update taws to v${{ steps.version.outputs.version }}"
           git push
+
+  scoop:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: taws-x86_64-pc-windows-msvc
+          path: .
+
+      - name: Get version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Generate checksum
+        id: checksum
+        run: |
+          echo "windows_amd64=$(sha256sum taws-x86_64-pc-windows-msvc.zip | cut -d ' ' -f 1)" >> $GITHUB_OUTPUT
+
+      - name: Checkout scoop-bucket
+        uses: actions/checkout@v4
+        with:
+          repository: huseyinbabal/scoop-bucket
+          token: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          path: scoop-bucket
+
+      - name: Update Scoop manifest
+        run: |
+          cat > scoop-bucket/taws.json << EOF
+          {
+              "homepage": "https://github.com/huseyinbabal/taws",
+              "license": "MIT",
+              "description": "Terminal UI for AWS - navigate, observe, and manage AWS resources",
+              "version": "${{ steps.version.outputs.version }}",
+              "architecture": {
+                  "64bit": {
+                      "url": "https://github.com/huseyinbabal/taws/releases/download/v${{ steps.version.outputs.version }}/taws-x86_64-pc-windows-msvc.zip",
+                      "hash": "${{ steps.checksum.outputs.windows_amd64 }}"
+                  }
+              },
+              "bin": "taws.exe",
+              "checkver": "github",
+              "autoupdate": {
+                  "architecture": {
+                      "64bit": {
+                          "url": "https://github.com/huseyinbabal/taws/releases/download/v\$version/taws-x86_64-pc-windows-msvc.zip"
+                      }
+                  },
+                  "hash": {
+                      "url": "\$baseurl/checksums.txt"
+                  }
+              }
+          }
+          EOF
+
+      - name: Commit and push manifest
+        run: |
+          cd scoop-bucket
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add taws.json
+          git commit -m "Update taws to v${{ steps.version.outputs.version }}"
+          git push
