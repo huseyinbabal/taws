@@ -1,4 +1,4 @@
-use crate::app::{App, Mode};
+use crate::app::{App, Mode, SsoLoginState};
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -11,6 +11,7 @@ pub fn render(f: &mut Frame, app: &App) {
     match app.mode {
         Mode::Confirm => render_confirm_dialog(f, app),
         Mode::Warning => render_warning_dialog(f, app),
+        Mode::SsoLogin => render_sso_dialog(f, app),
         _ => {}
     }
 }
@@ -119,6 +120,168 @@ fn render_warning_dialog(f: &mut Frame, app: &App) {
         .alignment(Alignment::Center);
 
     f.render_widget(paragraph, area);
+}
+
+fn render_sso_dialog(f: &mut Frame, app: &App) {
+    let Some(ref sso_state) = app.sso_state else {
+        return;
+    };
+
+    match sso_state {
+        SsoLoginState::Prompt {
+            profile,
+            sso_session,
+        } => {
+            let area = centered_rect(70, 10, f.area());
+            f.render_widget(Clear, area);
+
+            let text = vec![
+                Line::from(Span::styled(
+                    "<SSO Login Required>",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    format!("Profile '{}' requires SSO authentication.", profile),
+                    Style::default().fg(Color::White),
+                )),
+                Line::from(Span::styled(
+                    format!("Session: {}", sso_session),
+                    Style::default().fg(Color::DarkGray),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Press Enter to open browser for login, Esc to cancel",
+                    Style::default().fg(Color::Yellow),
+                )),
+            ];
+
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan));
+
+            let paragraph = Paragraph::new(text)
+                .block(block)
+                .alignment(Alignment::Center);
+
+            f.render_widget(paragraph, area);
+        }
+
+        SsoLoginState::WaitingForAuth {
+            user_code,
+            verification_uri,
+            ..
+        } => {
+            let area = centered_rect(70, 12, f.area());
+            f.render_widget(Clear, area);
+
+            let text = vec![
+                Line::from(Span::styled(
+                    "<Waiting for SSO Authentication>",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Complete authentication in your browser.",
+                    Style::default().fg(Color::White),
+                )),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("Code: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        user_code,
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ]),
+                Line::from(vec![
+                    Span::styled("URL: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(verification_uri, Style::default().fg(Color::Blue)),
+                ]),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Waiting... (Press Esc to cancel)",
+                    Style::default().fg(Color::DarkGray),
+                )),
+            ];
+
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Yellow));
+
+            let paragraph = Paragraph::new(text)
+                .block(block)
+                .alignment(Alignment::Center);
+
+            f.render_widget(paragraph, area);
+        }
+
+        SsoLoginState::Success { profile } => {
+            let area = centered_rect(50, 7, f.area());
+            f.render_widget(Clear, area);
+
+            let text = vec![
+                Line::from(Span::styled(
+                    "<SSO Login Successful>",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    format!("Authentication complete for '{}'!", profile),
+                    Style::default().fg(Color::White),
+                )),
+            ];
+
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Green));
+
+            let paragraph = Paragraph::new(text)
+                .block(block)
+                .alignment(Alignment::Center);
+
+            f.render_widget(paragraph, area);
+        }
+
+        SsoLoginState::Failed { error } => {
+            let area = centered_rect(70, 9, f.area());
+            f.render_widget(Clear, area);
+
+            let text = vec![
+                Line::from(Span::styled(
+                    "<SSO Login Failed>",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    error.as_str(),
+                    Style::default().fg(Color::White),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Press Enter or Esc to close",
+                    Style::default().fg(Color::DarkGray),
+                )),
+            ];
+
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Red));
+
+            let paragraph = Paragraph::new(text)
+                .block(block)
+                .alignment(Alignment::Center);
+
+            f.render_widget(paragraph, area);
+        }
+    }
 }
 
 fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {

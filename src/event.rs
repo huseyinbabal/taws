@@ -1,4 +1,5 @@
-use crate::app::{App, Mode};
+use crate::app::{App, Mode, SsoLoginState};
+use crate::aws::sso;
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use std::time::Duration;
@@ -22,6 +23,7 @@ async fn handle_key_event(app: &mut App, key: KeyEvent) -> Result<bool> {
         Mode::Warning => handle_warning_mode(app, key),
         Mode::Profiles => handle_profiles_mode(app, key).await,
         Mode::Regions => handle_regions_mode(app, key).await,
+        Mode::SsoLogin => handle_sso_login_mode(app, key).await,
     }
 }
 
@@ -446,4 +448,180 @@ async fn handle_regions_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
         _ => {}
     }
     Ok(false)
+}
+
+async fn handle_sso_login_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
+    let sso_state = match &app.sso_state {
+        Some(state) => state.clone(),
+        None => {
+            app.exit_mode();
+            return Ok(false);
+        }
+    };
+
+    match sso_state {
+        SsoLoginState::Prompt { profile, sso_session: _ } => {
+            match key.code {
+                KeyCode::Enter => {
+                    // Get SSO config and start device authorization - run blocking on separate thread
+                    let profile_clone = profile.clone();
+                    let result = tokio::task::spawn_blocking(move || {
+                        if let Some(config) = sso::get_sso_config(&profile_clone) {
+                            match sso::start_device_authorization(&config) {
+                                Ok(device_auth) => {
+                                    // Open browser
+                                    let _ = sso::open_sso_browser(&device_auth.verification_uri_complete);
+                                    Ok((profile_clone, device_auth, config.sso_region))
+                                }
+                                Err(e) => Err(format!("Failed to start SSO: {}", e)),
+                            }
+                        } else {
+                            Err(format!("SSO config not found for profile '{}'", profile_clone))
+                        }
+                    }).await;
+                    
+                    match result {
+                        Ok(Ok((prof, device_auth, sso_region))) => {
+                            app.sso_state = Some(SsoLoginState::WaitingForAuth {
+                                profile: prof,
+                                user_code: device_auth.user_code,
+                                verification_uri: device_auth.verification_uri,
+                                device_code: device_auth.device_code,
+                                interval: device_auth.interval as u64,
+                                sso_region,
+                            });
+                        }
+                        Ok(Err(e)) => {
+                            app.sso_state = Some(SsoLoginState::Failed { error: e });
+                        }
+                        Err(e) => {
+                            app.sso_state = Some(SsoLoginState::Failed { 
+                                error: format!("Task failed: {}", e) 
+                            });
+                        }
+                    }
+                }
+                KeyCode::Esc => {
+                    app.sso_state = None;
+                    app.exit_mode();
+                }
+                _ => {}
+            }
+        }
+
+        SsoLoginState::WaitingForAuth { profile, interval: _, .. } => {
+            match key.code {
+                KeyCode::Esc => {
+                    app.sso_state = None;
+                    app.exit_mode();
+                }
+                _ => {
+                    // Poll for token - run blocking on separate thread
+                    let profile_clone = profile.clone();
+                    let result = tokio::task::spawn_blocking(move || {
+                        if let Some(config) = sso::get_sso_config(&profile_clone) {
+                            match sso::poll_for_token(&config) {
+                                Ok(Some(_token)) => Ok(Some(profile_clone)),
+                                Ok(None) => Ok(None),
+                                Err(e) => Err(e.to_string()),
+                            }
+                        } else {
+                            Ok(None)
+                        }
+                    }).await;
+                    
+                    match result {
+                        Ok(Ok(Some(prof))) => {
+                            app.sso_state = Some(SsoLoginState::Success { profile: prof });
+                        }
+                        Ok(Ok(None)) => {
+                            // Still pending
+                        }
+                        Ok(Err(e)) => {
+                            app.sso_state = Some(SsoLoginState::Failed { error: e });
+                        }
+                        Err(e) => {
+                            app.sso_state = Some(SsoLoginState::Failed { 
+                                error: format!("Task failed: {}", e) 
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        SsoLoginState::Success { profile } => {
+            match key.code {
+                KeyCode::Enter | KeyCode::Esc => {
+                    // Now complete the profile switch with fresh SSO credentials
+                    let profile_to_switch = profile.clone();
+                    app.sso_state = None;
+                    app.exit_mode();
+                    // Actually switch the profile now that SSO is complete
+                    if let Err(e) = app.switch_profile(&profile_to_switch).await {
+                        app.error_message = Some(format!("Failed to switch profile: {}", e));
+                    } else {
+                        let _ = app.refresh_current().await;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        SsoLoginState::Failed { .. } => {
+            match key.code {
+                KeyCode::Enter | KeyCode::Esc => {
+                    app.sso_state = None;
+                    app.exit_mode();
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Ok(false)
+}
+
+/// Poll SSO token in background (called from main loop when in SSO waiting state)
+pub async fn poll_sso_if_waiting(app: &mut App) {
+    if app.mode != Mode::SsoLogin {
+        return;
+    }
+
+    let sso_state = match &app.sso_state {
+        Some(state) => state.clone(),
+        None => return,
+    };
+
+    if let SsoLoginState::WaitingForAuth { profile, .. } = sso_state {
+        let profile_clone = profile.clone();
+        let result = tokio::task::spawn_blocking(move || {
+            if let Some(config) = sso::get_sso_config(&profile_clone) {
+                match sso::poll_for_token(&config) {
+                    Ok(Some(_token)) => Ok(Some(profile_clone)),
+                    Ok(None) => Ok(None),
+                    Err(e) => Err(e.to_string()),
+                }
+            } else {
+                Ok(None)
+            }
+        }).await;
+        
+        match result {
+            Ok(Ok(Some(prof))) => {
+                app.sso_state = Some(SsoLoginState::Success { profile: prof });
+            }
+            Ok(Ok(None)) => {
+                // Still pending
+            }
+            Ok(Err(e)) => {
+                app.sso_state = Some(SsoLoginState::Failed { error: e });
+            }
+            Err(e) => {
+                app.sso_state = Some(SsoLoginState::Failed { 
+                    error: format!("Task failed: {}", e) 
+                });
+            }
+        }
+    }
 }

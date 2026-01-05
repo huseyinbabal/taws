@@ -3,6 +3,7 @@
 //! Supports:
 //! - Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN)
 //! - AWS profiles (~/.aws/credentials and ~/.aws/config)
+//! - AWS SSO (IAM Identity Center) via cached tokens
 //! - IMDSv2 (EC2 instance metadata)
 
 use anyhow::{anyhow, Result};
@@ -12,7 +13,21 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
+use thiserror::Error;
 use tracing::{debug, trace};
+
+/// Specific error for SSO login required
+#[derive(Debug, Error)]
+pub enum CredentialsError {
+    #[error("SSO login required for profile '{profile}' (session: {sso_session})")]
+    SsoLoginRequired {
+        profile: String,
+        sso_session: String,
+    },
+
+    #[error("{0}")]
+    Other(#[from] anyhow::Error),
+}
 
 /// AWS credentials
 #[derive(Debug, Clone)]
@@ -31,6 +46,9 @@ struct CachedImdsCredentials {
 /// Global cache for IMDS credentials
 static IMDS_CACHE: OnceLock<std::sync::Mutex<Option<CachedImdsCredentials>>> = OnceLock::new();
 
+/// Global cache for SSO credentials
+static SSO_CACHE: OnceLock<std::sync::Mutex<Option<CachedImdsCredentials>>> = OnceLock::new();
+
 /// IMDSv2 metadata endpoint
 const IMDS_ENDPOINT: &str = "http://169.254.169.254";
 /// IMDSv2 token TTL in seconds (6 hours)
@@ -38,10 +56,32 @@ const IMDS_TOKEN_TTL: u64 = 21600;
 /// Timeout for IMDS requests (2 seconds - fast fail if not on EC2)
 const IMDS_TIMEOUT: Duration = Duration::from_secs(2);
 /// Refresh credentials 5 minutes before expiration
-const IMDS_REFRESH_BUFFER: Duration = Duration::from_secs(300);
+const CREDENTIAL_REFRESH_BUFFER: Duration = Duration::from_secs(300);
 
 /// Load credentials for a given profile
 pub fn load_credentials(profile: &str) -> Result<Credentials> {
+    load_credentials_inner(profile).map_err(|e| match e {
+        CredentialsError::SsoLoginRequired {
+            profile,
+            sso_session,
+        } => {
+            anyhow!(
+                "SSO login required for profile '{}' (session: {})",
+                profile,
+                sso_session
+            )
+        }
+        CredentialsError::Other(e) => e,
+    })
+}
+
+/// Load credentials with detailed error for SSO
+pub fn load_credentials_with_sso_check(profile: &str) -> Result<Credentials, CredentialsError> {
+    load_credentials_inner(profile)
+}
+
+/// Internal credential loading with specific SSO error
+fn load_credentials_inner(profile: &str) -> Result<Credentials, CredentialsError> {
     // 1. Try environment variables first (if default profile or explicitly set)
     if profile == "default" {
         if let Ok(creds) = load_from_env() {
@@ -50,7 +90,32 @@ pub fn load_credentials(profile: &str) -> Result<Credentials> {
         }
     }
 
-    // 2. Try AWS credentials file
+    // 2. Check if SSO is configured for this profile - if so, prioritize SSO
+    //    This ensures we don't use stale static credentials when SSO is the intended auth method
+    if let Some(sso_config) = super::sso::get_sso_config(profile) {
+        debug!(
+            "SSO is configured for profile '{}', trying SSO first",
+            profile
+        );
+        match load_from_sso(profile) {
+            Ok(creds) => {
+                debug!("Loaded credentials from AWS SSO for profile '{}'", profile);
+                return Ok(creds);
+            }
+            Err(e) => {
+                debug!(
+                    "SSO configured for profile '{}' but token unavailable: {}",
+                    profile, e
+                );
+                return Err(CredentialsError::SsoLoginRequired {
+                    profile: profile.to_string(),
+                    sso_session: sso_config.sso_session,
+                });
+            }
+        }
+    }
+
+    // 3. Try AWS credentials file
     if let Ok(creds) = load_from_credentials_file(profile) {
         debug!(
             "Loaded credentials from credentials file for profile '{}'",
@@ -59,7 +124,7 @@ pub fn load_credentials(profile: &str) -> Result<Credentials> {
         return Ok(creds);
     }
 
-    // 3. Try config file with credential_source or role
+    // 4. Try config file with direct credentials
     if let Ok(creds) = load_from_config_file(profile) {
         debug!(
             "Loaded credentials from config file for profile '{}'",
@@ -68,7 +133,7 @@ pub fn load_credentials(profile: &str) -> Result<Credentials> {
         return Ok(creds);
     }
 
-    // 4. Try IMDSv2 (EC2 instance metadata) - only for default profile
+    // 5. Try IMDSv2 (EC2 instance metadata) - only for default profile
     if profile == "default" {
         match load_from_imds() {
             Ok(creds) => {
@@ -81,10 +146,11 @@ pub fn load_credentials(profile: &str) -> Result<Credentials> {
         }
     }
 
-    Err(anyhow!(
-        "No credentials found for profile '{}'. Run 'aws configure' or set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY",
+    Err(CredentialsError::Other(anyhow!(
+        "No credentials found for profile '{}'. Run 'aws configure' or 'aws sso login --profile {}' or set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY",
+        profile,
         profile
-    ))
+    )))
 }
 
 /// Load credentials from environment variables
@@ -103,7 +169,7 @@ fn load_from_env() -> Result<Credentials> {
 }
 
 /// Get AWS config directory
-fn aws_config_dir() -> Result<PathBuf> {
+pub fn aws_config_dir() -> Result<PathBuf> {
     if let Ok(path) = env::var("AWS_CONFIG_FILE") {
         if let Some(parent) = PathBuf::from(path).parent() {
             return Ok(parent.to_path_buf());
@@ -116,6 +182,7 @@ fn aws_config_dir() -> Result<PathBuf> {
 }
 
 /// Parse an INI-style file into sections
+/// Returns (profiles, sso_sessions) where sso_sessions contains [sso-session X] sections
 fn parse_ini_file(content: &str) -> HashMap<String, HashMap<String, String>> {
     let mut sections: HashMap<String, HashMap<String, String>> = HashMap::new();
     let mut current_section = String::new();
@@ -135,6 +202,7 @@ fn parse_ini_file(content: &str) -> HashMap<String, HashMap<String, String>> {
             if current_section.starts_with("profile ") {
                 current_section = current_section["profile ".len()..].to_string();
             }
+            // Keep sso-session sections with their prefix for identification
             sections.entry(current_section.clone()).or_default();
             continue;
         }
@@ -184,7 +252,7 @@ fn load_from_credentials_file(profile: &str) -> Result<Credentials> {
     })
 }
 
-/// Load credentials from ~/.aws/config (for SSO, assume role, etc.)
+/// Load credentials from ~/.aws/config (for direct credentials only)
 fn load_from_config_file(profile: &str) -> Result<Credentials> {
     let config_path = aws_config_dir()?.join("config");
     let content = fs::read_to_string(&config_path)
@@ -208,12 +276,60 @@ fn load_from_config_file(profile: &str) -> Result<Credentials> {
         });
     }
 
-    // TODO: Handle credential_source, role_arn, source_profile, sso_*, etc.
-
     Err(anyhow!(
         "No direct credentials found in config for profile '{}'",
         profile
     ))
+}
+
+// =============================================================================
+// AWS SSO (IAM Identity Center) Support
+// =============================================================================
+
+/// Load credentials from AWS SSO (IAM Identity Center)
+/// This only works with cached tokens - for interactive login, use the sso module directly
+fn load_from_sso(profile: &str) -> Result<Credentials> {
+    use super::sso;
+
+    // Check credential cache first
+    let cache = SSO_CACHE.get_or_init(|| std::sync::Mutex::new(None));
+
+    if let Ok(guard) = cache.lock() {
+        if let Some(ref cached) = *guard {
+            if cached.expiration > Instant::now() + CREDENTIAL_REFRESH_BUFFER {
+                trace!("Using cached SSO credentials");
+                return Ok(cached.credentials.clone());
+            }
+        }
+    }
+
+    // Get SSO config for this profile
+    let sso_config = sso::get_sso_config(profile)
+        .ok_or_else(|| anyhow!("Profile '{}' does not have SSO configured", profile))?;
+
+    // Try to read cached SSO token
+    let access_token = sso::read_cached_token(&sso_config).ok_or_else(|| {
+        anyhow!(
+            "SSO token not found or expired for profile '{}'. Interactive login required.",
+            profile
+        )
+    })?;
+
+    // Exchange token for credentials
+    let credentials = sso::get_role_credentials(&sso_config, &access_token)?;
+
+    // Cache the credentials
+    let expiration = Instant::now() + Duration::from_secs(3600); // Default 1 hour
+    let cache = SSO_CACHE.get_or_init(|| std::sync::Mutex::new(None));
+    if let Ok(mut guard) = cache.lock() {
+        *guard = Some(CachedImdsCredentials {
+            credentials: credentials.clone(),
+            expiration,
+        });
+        debug!("Cached SSO credentials");
+    }
+
+    Ok(credentials)
 }
 
 /// Get the default region for a profile
@@ -289,7 +405,7 @@ fn load_from_imds() -> Result<Credentials> {
     if let Ok(guard) = cache.lock() {
         if let Some(ref cached) = *guard {
             // Return cached credentials if not expired (with buffer)
-            if cached.expiration > Instant::now() + IMDS_REFRESH_BUFFER {
+            if cached.expiration > Instant::now() + CREDENTIAL_REFRESH_BUFFER {
                 trace!("Using cached IMDS credentials");
                 return Ok(cached.credentials.clone());
             }

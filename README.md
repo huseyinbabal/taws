@@ -137,13 +137,20 @@ taws uses a credential chain, trying each source in order:
 | Priority | Source | Description |
 |----------|--------|-------------|
 | 1 | Environment Variables | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` |
-| 2 | Credentials File | `~/.aws/credentials` |
-| 3 | Config File | `~/.aws/config` |
-| 4 | IMDSv2 | EC2 instance metadata (requires IAM role attached to instance) |
+| 2 | **AWS SSO** | If profile has SSO configured, uses SSO (prompts for login if needed) |
+| 3 | Credentials File | `~/.aws/credentials` |
+| 4 | Config File | `~/.aws/config` |
+| 5 | IMDSv2 | EC2 instance metadata |
 
-For local development, run `aws configure` to set up credentials.
+### AWS SSO
 
-For EC2 instances, attach an IAM role with appropriate permissions to your instance. taws will automatically use IMDSv2 to fetch credentials.
+taws supports AWS SSO. If your profile uses SSO and the token is expired, taws will prompt you to authenticate via browser.
+
+Both SSO config formats are supported:
+- Modern: `sso_session` reference to `[sso-session X]` section
+- Legacy: `sso_start_url` directly in profile
+
+If you already logged in via `aws sso login`, taws will use the cached token automatically.
 
 ---
 

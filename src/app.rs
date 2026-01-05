@@ -19,6 +19,7 @@ pub enum Mode {
     Profiles,    // Profile selection
     Regions,     // Region selection
     Describe,    // Viewing JSON details of selected item
+    SsoLogin,    // SSO login dialog
 }
 
 /// Pending action that requires confirmation
@@ -113,10 +114,53 @@ pub struct App {
     
     // Custom endpoint URL (for LocalStack, etc.)
     pub endpoint_url: Option<String>,
+    
+    // SSO login state
+    pub sso_state: Option<SsoLoginState>,
+}
+
+/// SSO Login dialog state
+#[derive(Debug, Clone)]
+pub enum SsoLoginState {
+    /// Prompt to start login
+    Prompt {
+        profile: String,
+        sso_session: String,
+    },
+    /// Waiting for browser auth
+    WaitingForAuth {
+        profile: String,
+        user_code: String,
+        verification_uri: String,
+        #[allow(dead_code)]
+        device_code: String,
+        #[allow(dead_code)]
+        interval: u64,
+        #[allow(dead_code)]
+        sso_region: String,
+    },
+    /// Login succeeded - contains profile to switch to
+    Success {
+        profile: String,
+    },
+    /// Login failed
+    Failed {
+        error: String,
+    },
+}
+
+/// Result of profile switch attempt
+#[derive(Debug, Clone)]
+pub enum ProfileSwitchResult {
+    /// Profile switched successfully
+    Success,
+    /// SSO login required for this profile
+    SsoRequired { profile: String, sso_session: String },
 }
 
 impl App {
     /// Create App from pre-initialized components (used with splash screen)
+    #[allow(clippy::too_many_arguments)]
     pub fn from_initialized(
         clients: AwsClients,
         profile: String,
@@ -162,6 +206,7 @@ impl App {
             readonly,
             warning_message: None,
             endpoint_url,
+            sso_state: None,
         }
     }
     
@@ -583,6 +628,15 @@ impl App {
         self.mode = Mode::Warning;
     }
     
+    /// Enter SSO login mode to prompt for browser authentication
+    pub fn enter_sso_login_mode(&mut self, profile: &str, sso_session: &str) {
+        self.sso_state = Some(SsoLoginState::Prompt {
+            profile: profile.to_string(),
+            sso_session: sso_session.to_string(),
+        });
+        self.mode = Mode::SsoLogin;
+    }
+    
     /// Create a pending action from an ActionDef
     pub fn create_pending_action(&self, action: &crate::resource::ActionDef, resource_id: &str) -> Option<PendingAction> {
         let config = action.get_confirm_config()?;
@@ -772,15 +826,49 @@ impl App {
         
         Ok(())
     }
+    
+    /// Switch profile with SSO check - returns SsoRequired if SSO login is needed
+    pub async fn switch_profile_with_sso_check(&mut self, profile: &str) -> Result<ProfileSwitchResult> {
+        use crate::aws::client::ClientResult;
+        
+        match AwsClients::new_with_sso_check(profile, &self.region, self.endpoint_url.clone()).await? {
+            ClientResult::Ok(new_clients, actual_region) => {
+                self.clients = new_clients;
+                self.profile = profile.to_string();
+                self.region = actual_region.clone();
+                
+                // Save to config
+                let _ = self.config.set_profile(profile);
+                let _ = self.config.set_region(&actual_region);
+                
+                Ok(ProfileSwitchResult::Success)
+            }
+            ClientResult::SsoLoginRequired { profile, sso_session, .. } => {
+                Ok(ProfileSwitchResult::SsoRequired { profile, sso_session })
+            }
+        }
+    }
 
-    pub async fn select_profile(&mut self) -> Result<()> {
+    /// Select profile - returns true if SSO login is required
+    pub async fn select_profile(&mut self) -> Result<bool> {
         if let Some(profile) = self.available_profiles.get(self.profiles_selected) {
             let profile = profile.clone();
-            self.switch_profile(&profile).await?;
-            self.refresh_current().await?;
+            match self.switch_profile_with_sso_check(&profile).await? {
+                ProfileSwitchResult::Success => {
+                    self.refresh_current().await?;
+                    self.exit_mode();
+                    Ok(false)
+                }
+                ProfileSwitchResult::SsoRequired { profile, sso_session } => {
+                    // Enter SSO login mode
+                    self.enter_sso_login_mode(&profile, &sso_session);
+                    Ok(true)
+                }
+            }
+        } else {
+            self.exit_mode();
+            Ok(false)
         }
-        self.exit_mode();
-        Ok(())
     }
 
     pub async fn select_region(&mut self) -> Result<()> {
