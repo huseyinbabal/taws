@@ -44,6 +44,10 @@ struct Args {
     /// Log level for debugging (logs to platform config dir: Linux ~/.config/taws/taws.log, macOS ~/Library/Application Support/taws/taws.log, Windows %APPDATA%/taws/taws.log)
     #[arg(long, value_enum, default_value = "off")]
     log_level: LogLevel,
+
+    /// Run in read-only mode (block all write operations)
+    #[arg(long)]
+    readonly: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -260,6 +264,7 @@ where
         available_regions,
         instances,
         config,
+        args.readonly,
     );
 
     // Set initial error if any

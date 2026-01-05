@@ -56,7 +56,7 @@ pub fn render(f: &mut Frame, app: &App) {
         Mode::Help => {
             help::render(f, app);
         }
-        Mode::Confirm => {
+        Mode::Confirm | Mode::Warning => {
             dialog::render(f, app);
         }
         Mode::Command => {

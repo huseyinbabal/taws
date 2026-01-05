@@ -15,6 +15,7 @@ pub enum Mode {
     Command,     // : command input
     Help,        // ? help popup
     Confirm,     // Confirmation dialog
+    Warning,     // Warning/info dialog (OK only)
     Profiles,    // Profile selection
     Regions,     // Region selection
     Describe,    // Viewing JSON details of selected item
@@ -103,6 +104,12 @@ pub struct App {
     
     // Key press tracking for sequences (e.g., 'gg')
     pub last_key_press: Option<(KeyCode, std::time::Instant)>,
+    
+    // Read-only mode (blocks all write operations)
+    pub readonly: bool,
+    
+    // Warning message for modal dialog
+    pub warning_message: Option<String>,
 }
 
 impl App {
@@ -115,6 +122,7 @@ impl App {
         available_regions: Vec<String>,
         initial_items: Vec<Value>,
         config: Config,
+        readonly: bool,
     ) -> Self {
         let filtered_items = initial_items.clone();
         
@@ -147,6 +155,8 @@ impl App {
             last_refresh: std::time::Instant::now(),
             config,
             last_key_press: None,
+            readonly,
+            warning_message: None,
         }
     }
     
@@ -560,6 +570,12 @@ impl App {
     pub fn enter_confirm_mode(&mut self, pending: PendingAction) {
         self.pending_action = Some(pending);
         self.mode = Mode::Confirm;
+    }
+    
+    /// Show a warning modal with OK button
+    pub fn show_warning(&mut self, message: &str) {
+        self.warning_message = Some(message.to_string());
+        self.mode = Mode::Warning;
     }
     
     /// Create a pending action from an ActionDef

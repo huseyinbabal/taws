@@ -19,6 +19,7 @@ async fn handle_key_event(app: &mut App, key: KeyEvent) -> Result<bool> {
         Mode::Help => handle_help_mode(app, key),
         Mode::Describe => handle_describe_mode(app, key),
         Mode::Confirm => handle_confirm_mode(app, key).await,
+        Mode::Warning => handle_warning_mode(app, key),
         Mode::Profiles => handle_profiles_mode(app, key).await,
         Mode::Regions => handle_regions_mode(app, key).await,
     }
@@ -98,7 +99,11 @@ async fn handle_normal_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
                         if let Some(item) = app.selected_item() {
                             let id = crate::resource::extract_json_value(item, &resource.id_field);
                             if id != "-" && !id.is_empty() {
-                                if let Some(pending) = app.create_pending_action(action, &id) {
+                                // Block action in readonly mode
+                                if app.readonly {
+                                    app.show_warning("This operation is not supported in read-only mode");
+                                    action_triggered = true;
+                                } else if let Some(pending) = app.create_pending_action(action, &id) {
                                     app.enter_confirm_mode(pending);
                                     action_triggered = true;
                                 }
@@ -176,8 +181,12 @@ async fn handle_normal_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
                                 if let Some(item) = app.selected_item() {
                                     let id = crate::resource::extract_json_value(item, &resource.id_field);
                                     if id != "-" && !id.is_empty() {
-                                        // Check if action requires confirmation
-                                        if action.requires_confirm() {
+                                        // Block action in readonly mode
+                                        if app.readonly {
+                                            app.show_warning("This operation is not supported in read-only mode");
+                                            handled = true;
+                                        } else if action.requires_confirm() {
+                                            // Check if action requires confirmation
                                             if let Some(pending) = app.create_pending_action(action, &id) {
                                                 app.enter_confirm_mode(pending);
                                                 handled = true;
@@ -324,6 +333,17 @@ fn handle_describe_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
     Ok(false)
 }
 
+fn handle_warning_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
+    match key.code {
+        KeyCode::Enter | KeyCode::Esc | KeyCode::Char('o') | KeyCode::Char('O') => {
+            app.warning_message = None;
+            app.exit_mode();
+        }
+        _ => {}
+    }
+    Ok(false)
+}
+
 async fn handle_confirm_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
     match key.code {
         // Toggle selection with arrow keys or tab
@@ -336,23 +356,29 @@ async fn handle_confirm_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
         KeyCode::Enter => {
             if let Some(ref pending) = app.pending_action {
                 if pending.selected_yes {
-                    // Execute the action
-                    let service = pending.service.clone();
-                    let method = pending.sdk_method.clone();
-                    let resource_id = pending.resource_id.clone();
-                    
-                    if let Err(e) = crate::resource::execute_action(&service, &method, &app.clients, &resource_id).await {
-                        app.error_message = Some(format!("Action failed: {}", e));
+                    // Execute the action (if not in readonly mode)
+                    if app.readonly {
+                        app.error_message = Some("This operation is not supported in read-only mode".to_string());
+                    } else {
+                        let service = pending.service.clone();
+                        let method = pending.sdk_method.clone();
+                        let resource_id = pending.resource_id.clone();
+                        
+                        if let Err(e) = crate::resource::execute_action(&service, &method, &app.clients, &resource_id).await {
+                            app.error_message = Some(format!("Action failed: {}", e));
+                        }
+                        // Refresh after action
+                        let _ = app.refresh_current().await;
                     }
-                    // Refresh after action
-                    let _ = app.refresh_current().await;
                 }
             }
             app.exit_mode();
         }
         // Quick yes/no
         KeyCode::Char('y') | KeyCode::Char('Y') => {
-            if let Some(ref pending) = app.pending_action {
+            if app.readonly {
+                app.error_message = Some("This operation is not supported in read-only mode".to_string());
+            } else if let Some(ref pending) = app.pending_action {
                 let service = pending.service.clone();
                 let method = pending.sdk_method.clone();
                 let resource_id = pending.resource_id.clone();

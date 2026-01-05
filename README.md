@@ -142,6 +142,9 @@ taws --region us-west-2
 
 # Enable debug logging
 taws --log-level debug
+
+# Run in read-only mode (blocks all write operations)
+taws --readonly
 ```
 
 ### Log File Locations

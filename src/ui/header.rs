@@ -75,6 +75,19 @@ fn render_context_column(f: &mut Frame, app: &App, area: Rect) {
         ]));
     }
 
+    // Show read-only mode indicator
+    if app.readonly {
+        lines.push(Line::from(vec![
+            Span::styled("Mode:    ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                "READONLY",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+    }
+
     let paragraph = Paragraph::new(lines);
     f.render_widget(paragraph, area);
 }
