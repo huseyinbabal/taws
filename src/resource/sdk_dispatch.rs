@@ -45,28 +45,17 @@ fn format_bytes(bytes: u64) -> String {
 
 /// Format epoch milliseconds to human-readable date string
 fn format_epoch_millis(millis: i64) -> String {
-    use std::time::{Duration, UNIX_EPOCH};
-    
-    let duration = Duration::from_millis(millis as u64);
-    let datetime = UNIX_EPOCH + duration;
-    
-    // Convert to a simple date/time string
-    if let Ok(elapsed) = datetime.duration_since(UNIX_EPOCH) {
-        let secs = elapsed.as_secs();
-        let days = secs / 86400;
-        let years = 1970 + days / 365;
-        let remaining_days = days % 365;
-        let months = remaining_days / 30;
-        let day = remaining_days % 30 + 1;
-        let hours = (secs % 86400) / 3600;
-        let minutes = (secs % 3600) / 60;
-        let seconds = secs % 60;
-        
-        format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", 
-            years, months + 1, day, hours, minutes, seconds)
-    } else {
-        "-".to_string()
+    use chrono::{TimeZone, Utc};
+
+    // Treat zero or negative timestamps as invalid/missing
+    if millis <= 0 {
+        return "-".to_string();
     }
+
+    Utc.timestamp_millis_opt(millis)
+        .single()
+        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+        .unwrap_or_else(|| "-".to_string())
 }
 
 /// Format epoch milliseconds to human-readable date string (public for log tail UI)
