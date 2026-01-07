@@ -76,7 +76,19 @@ pub async fn fetch_resources(
     ).await?;
 
     // 4. Extract items using response_path
-    let items = extract_items(&response, &resource_def.response_path)?;
+    let mut items = extract_items(&response, &resource_def.response_path)?;
+    
+    // 5. Sort items by name_field for consistent ordering
+    let sort_field = &resource_def.name_field;
+    items.sort_by(|a, b| {
+        let a_val = a.get(sort_field)
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let b_val = b.get(sort_field)
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        a_val.cmp(b_val)
+    });
 
     Ok(items)
 }
@@ -124,9 +136,21 @@ pub async fn fetch_resources_paginated(
     ).await?;
 
     // 4. Extract items using response_path
-    let items = extract_items(&response, &resource_def.response_path)?;
+    let mut items = extract_items(&response, &resource_def.response_path)?;
     
-    // 5. Extract next_token from response (if present)
+    // 5. Sort items by name_field (or id_field) for consistent ordering
+    let sort_field = &resource_def.name_field;
+    items.sort_by(|a, b| {
+        let a_val = a.get(sort_field)
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let b_val = b.get(sort_field)
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        a_val.cmp(b_val)
+    });
+    
+    // 6. Extract next_token from response (if present)
     let next_token = response.get("_next_token")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());

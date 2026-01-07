@@ -147,6 +147,12 @@ pub struct ResourceDef {
     pub sub_resources: Vec<SubResourceDef>,
     #[serde(default)]
     pub actions: Vec<ActionDef>,
+    /// SDK method to call when fetching details for a single resource
+    #[serde(default)]
+    pub detail_sdk_method: Option<String>,
+    /// Parameters for detail_sdk_method (maps param name -> field from resource)
+    #[serde(default)]
+    pub detail_sdk_method_params: Value,
 }
 
 /// Root structure of resources/*.json

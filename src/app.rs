@@ -273,17 +273,10 @@ impl App {
         }
     }
     
-    /// Check if auto-refresh is needed (every 5 seconds)
+    /// Check if auto-refresh is needed
+    /// Auto-refresh is disabled - use 'R' to manually refresh
     pub fn needs_refresh(&self) -> bool {
-        // Only auto-refresh in Normal mode, not when in dialogs/command/etc.
-        if self.mode != Mode::Normal {
-            return false;
-        }
-        // Don't refresh while already loading
-        if self.loading {
-            return false;
-        }
-        self.last_refresh.elapsed() >= std::time::Duration::from_secs(5)
+        false
     }
     
     /// Reset refresh timer
@@ -763,23 +756,52 @@ impl App {
         self.describe_data = None;
         
         // Get the selected item's ID
-        if let Some(item) = self.selected_item() {
+        if let Some(item) = self.selected_item().cloned() {
             if let Some(resource_def) = self.current_resource() {
-                let id = crate::resource::extract_json_value(item, &resource_def.id_field);
-                if id != "-" && !id.is_empty() {
-                    // Fetch full details
-                    match crate::resource::describe_resource(
-                        &self.current_resource_key,
+                // Check if this resource has a detail_sdk_method defined
+                if let Some(ref detail_method) = resource_def.detail_sdk_method {
+                    // Build params from item data based on detail_sdk_method_params
+                    let mut params = serde_json::Map::new();
+                    if let Some(param_map) = resource_def.detail_sdk_method_params.as_object() {
+                        for (param_name, field_name) in param_map {
+                            if let Some(field) = field_name.as_str() {
+                                let value = crate::resource::extract_json_value(&item, field);
+                                params.insert(param_name.clone(), serde_json::Value::String(value));
+                            }
+                        }
+                    }
+                    
+                    // Call the detail SDK method
+                    match crate::resource::invoke_sdk(
+                        &resource_def.service,
+                        detail_method,
                         &self.clients,
-                        &id,
+                        &serde_json::Value::Object(params),
                     ).await {
                         Ok(data) => {
                             self.describe_data = Some(data);
                         }
                         Err(e) => {
-                            tracing::warn!("Failed to fetch describe data: {}", e);
-                            // Fall back to list data
-                            self.describe_data = Some(item.clone());
+                            tracing::warn!("Failed to fetch detail data via {}: {}", detail_method, e);
+                            self.describe_data = Some(item);
+                        }
+                    }
+                } else {
+                    // Fall back to existing describe_resource logic
+                    let id = crate::resource::extract_json_value(&item, &resource_def.id_field);
+                    if id != "-" && !id.is_empty() {
+                        match crate::resource::describe_resource(
+                            &self.current_resource_key,
+                            &self.clients,
+                            &id,
+                        ).await {
+                            Ok(data) => {
+                                self.describe_data = Some(data);
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to fetch describe data: {}", e);
+                                self.describe_data = Some(item);
+                            }
                         }
                     }
                 }

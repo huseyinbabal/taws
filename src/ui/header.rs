@@ -194,19 +194,35 @@ fn render_keybindings_col1(f: &mut Frame, app: &App, area: Rect) {
         let mut b: Vec<(String, String)> = vec![("<d>".to_string(), "Describe".to_string())];
 
         // Add resource-specific actions
-        for action in resource.actions.iter().take(4) {
+        for action in resource.actions.iter().take(3) {
             if let Some(ref shortcut) = action.shortcut {
                 b.push((format!("<{}>", shortcut), action.display_name.clone()));
             }
         }
 
+        // Add pagination shortcuts if available
+        if app.pagination.has_more {
+            b.push(("<]>".to_string(), "Next Page".to_string()));
+        }
+        if app.pagination.current_page > 1 {
+            b.push(("<[>".to_string(), "Prev Page".to_string()));
+        }
+
         b.push(("<?>".to_string(), "Help".to_string()));
         b
     } else {
-        vec![
-            ("<d>".to_string(), "Describe".to_string()),
-            ("<?>".to_string(), "Help".to_string()),
-        ]
+        let mut b = vec![("<d>".to_string(), "Describe".to_string())];
+
+        // Add pagination shortcuts if available
+        if app.pagination.has_more {
+            b.push(("<]>".to_string(), "Next Page".to_string()));
+        }
+        if app.pagination.current_page > 1 {
+            b.push(("<[>".to_string(), "Prev Page".to_string()));
+        }
+
+        b.push(("<?>".to_string(), "Help".to_string()));
+        b
     };
 
     let lines: Vec<Line> = bindings
@@ -224,13 +240,13 @@ fn render_keybindings_col1(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_keybindings_col2(f: &mut Frame, area: Rect) {
-    let bindings = [
+    let bindings = vec![
         ("</>", "Filter"),
         ("<:>", "Resources"),
+        ("<R>", "Refresh"),
         ("<esc>", "Back"),
         ("<bs>", "Parent"),
         ("<ctrl-c>", "Quit"),
-        ("", ""),
     ];
 
     let lines: Vec<Line> = bindings

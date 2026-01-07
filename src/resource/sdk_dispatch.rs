@@ -1156,33 +1156,15 @@ pub async fn invoke_sdk(
             let list_json: Value = serde_json::from_str(&list_response)?;
             let service_arns = list_json.get("serviceArns").and_then(|v| v.as_array()).cloned().unwrap_or_default();
             
-            if service_arns.is_empty() {
-                // Still return next_token if present (edge case: all services deleted but more pages exist)
-                let next_token = list_json.get("nextToken").and_then(|v| v.as_str());
-                let mut response = json!({ "services": [] });
-                if let Some(token) = next_token {
-                    response["_next_token"] = json!(token);
-                }
-                return Ok(response);
-            }
-            
-            let desc_response = clients.http.json_request("ecs", "DescribeServices", &json!({
-                "cluster": cluster,
-                "services": service_arns
-            }).to_string()).await?;
-            let desc_json: Value = serde_json::from_str(&desc_response)?;
-            
-            let services = desc_json.get("services").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-            let result: Vec<Value> = services.iter().map(|s| {
-                json!({
-                    "serviceArn": s.get("serviceArn").and_then(|v| v.as_str()).unwrap_or("-"),
-                    "serviceName": s.get("serviceName").and_then(|v| v.as_str()).unwrap_or("-"),
-                    "status": s.get("status").and_then(|v| v.as_str()).unwrap_or("-"),
-                    "desiredCount": s.get("desiredCount").and_then(|v| v.as_i64()).unwrap_or(0),
-                    "runningCount": s.get("runningCount").and_then(|v| v.as_i64()).unwrap_or(0),
-                    "launchType": s.get("launchType").and_then(|v| v.as_str()).unwrap_or("-"),
-                    "clusterArn": s.get("clusterArn").and_then(|v| v.as_str()).unwrap_or("-"),
-                })
+            // Parse service name from ARN: arn:aws:ecs:region:account:service/cluster/service-name
+            let result: Vec<Value> = service_arns.iter().filter_map(|arn| {
+                let arn_str = arn.as_str()?;
+                let service_name = arn_str.split('/').last().unwrap_or("-");
+                Some(json!({
+                    "serviceArn": arn_str,
+                    "serviceName": service_name,
+                    "clusterArn": cluster,
+                }))
             }).collect();
             
             // Include next_token in response for pagination
@@ -1193,6 +1175,31 @@ pub async fn invoke_sdk(
             }
             
             Ok(response)
+        }
+
+        ("ecs", "describe_service") => {
+            let cluster = extract_param(params, "cluster");
+            let service = extract_param(params, "service");
+            
+            if cluster.is_empty() || service.is_empty() {
+                return Ok(json!({ "service": null }));
+            }
+            
+            let response = clients.http.json_request("ecs", "DescribeServices", &json!({
+                "cluster": cluster,
+                "services": [service]
+            }).to_string()).await?;
+            
+            let json: Value = serde_json::from_str(&response)?;
+            let services = json.get("services").and_then(|v| v.as_array());
+            
+            if let Some(services) = services {
+                if let Some(service) = services.first() {
+                    return Ok(service.clone());
+                }
+            }
+            
+            Ok(json!({ "service": null }))
         }
 
         ("ecs", "list_tasks_with_details") => {

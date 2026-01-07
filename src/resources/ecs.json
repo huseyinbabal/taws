@@ -33,12 +33,10 @@
       "name_field": "serviceName",
       "is_global": false,
       "columns": [
-        { "header": "SERVICE NAME", "json_path": "serviceName", "width": 30 },
-        { "header": "STATUS", "json_path": "status", "width": 12, "color_map": "state" },
-        { "header": "DESIRED", "json_path": "desiredCount", "width": 10 },
-        { "header": "RUNNING", "json_path": "runningCount", "width": 10 },
-        { "header": "LAUNCH TYPE", "json_path": "launchType", "width": 12 }
+        { "header": "SERVICE NAME", "json_path": "serviceName", "width": 50 }
       ],
+      "detail_sdk_method": "describe_service",
+      "detail_sdk_method_params": { "service": "serviceArn", "cluster": "clusterArn" },
       "sub_resources": [],
       "actions": [
         { "key": "ctrl+d", "display_name": "Delete Service", "shortcut": "ctrl+d", "sdk_method": "delete_service", "confirm": { "message": "Delete ECS service", "default_yes": false, "destructive": true } }

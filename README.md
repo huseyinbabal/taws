@@ -4,7 +4,7 @@
 
 # taws - Terminal UI for AWS
 
-**taws** provides a terminal UI to interact with your AWS resources. The aim of this project is to make it easier to navigate, observe, and manage your AWS infrastructure in the wild. taws continually watches AWS for changes and offers subsequent commands to interact with your observed resources.
+**taws** provides a terminal UI to interact with your AWS resources. The aim of this project is to make it easier to navigate, observe, and manage your AWS infrastructure in the wild.
 
 ---
 
@@ -30,7 +30,8 @@
 - **Multi-Profile Support** - Easily switch between AWS profiles
 - **Multi-Region Support** - Navigate across different AWS regions
 - **94+ Resource Types** - Browse and manage resources across 60+ AWS services
-- **Real-time Updates** - Refresh resources with a single keystroke
+- **Manual Refresh** - Refresh resources with a single keystroke
+- **Pagination** - Navigate through large resource lists with `]` / `[` keys
 - **Keyboard-Driven** - Vim-like navigation and commands
 - **Resource Actions** - Start, stop, terminate EC2 instances directly
 - **Detailed Views** - JSON/YAML view of resource details
@@ -196,21 +197,21 @@ AWS_ENDPOINT_URL=http://localhost:4566 taws
 | **Navigation** | | |
 | Move up | `k` / `↑` | Move selection up |
 | Move down | `j` / `↓` | Move selection down |
-| Page up | `Ctrl-u` | Move up by page |
-| Page down | `Ctrl-d` | Move down by page |
-| Top | `g` | Jump to first item |
+| Top | `gg` | Jump to first item |
 | Bottom | `G` | Jump to last item |
+| **Pagination** | | |
+| Next page | `]` | Load next page of results |
+| Previous page | `[` | Load previous page of results |
 | **Views** | | |
 | Resource picker | `:` | Open resource type selector |
 | Describe | `Enter` / `d` | View resource details |
-| Back | `Esc` | Go back to previous view |
+| Back | `Esc` / `Backspace` | Go back to previous view |
 | Help | `?` | Show help screen |
 | **Actions** | | |
-| Refresh | `r` | Refresh current view |
+| Refresh | `R` | Refresh current view (resets pagination) |
 | Filter | `/` | Filter resources |
-| Profiles | `p` | Switch AWS profile |
-| Regions | `R` | Switch AWS region |
-| Quit | `q` / `Ctrl-c` | Exit taws |
+| Region shortcuts | `0-5` | Quick switch to common regions |
+| Quit | `Ctrl-c` | Exit taws |
 | **EC2 Actions** | | |
 | Start instance | `s` | Start selected EC2 instance |
 | Stop instance | `S` | Stop selected EC2 instance |
@@ -298,7 +299,7 @@ See [Authentication](#authentication) for credential setup.
 ## Known Issues
 
 - Some resources may require specific IAM permissions not covered by basic read-only policies
-- Resource counts may vary during loading due to pagination
+- Total resource count is not displayed due to AWS API limitations (most AWS APIs don't return total count)
 - Some global services (IAM, Route53, CloudFront) always use us-east-1
 
 ---

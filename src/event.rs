@@ -157,6 +157,12 @@ async fn handle_normal_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
             }
         }
 
+        // Manual refresh
+        KeyCode::Char('R') => {
+            app.reset_pagination();
+            app.refresh_current().await?;
+        }
+
         // Mode switches
         KeyCode::Char(':') => app.enter_command_mode(),
         KeyCode::Char('?') => app.enter_help_mode(),
