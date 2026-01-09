@@ -2276,7 +2276,7 @@ dependencies = [
 
 [[package]]
 name = "taws"
-version = "1.1.3"
+version = "1.1.4"
 dependencies = [
  "anyhow",
  "aws-credential-types",
