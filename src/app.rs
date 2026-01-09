@@ -1023,8 +1023,10 @@ impl App {
         let actual_region = self.clients.switch_region(&self.profile, region).await?;
         self.region = actual_region.clone();
         
-        // Save to config (ignore errors - don't fail region switch if config save fails)
-        let _ = self.config.set_region(&actual_region);
+        // Save to config (log errors but don't fail region switch)
+        if let Err(e) = self.config.set_region(&actual_region) {
+            tracing::warn!("Failed to save region to config: {}", e);
+        }
         
         Ok(())
     }
@@ -1035,9 +1037,13 @@ impl App {
         self.profile = profile.to_string();
         self.region = actual_region.clone();
         
-        // Save to config (ignore errors - don't fail profile switch if config save fails)
-        let _ = self.config.set_profile(profile);
-        let _ = self.config.set_region(&actual_region);
+        // Save to config (log errors but don't fail profile switch)
+        if let Err(e) = self.config.set_profile(profile) {
+            tracing::warn!("Failed to save profile to config: {}", e);
+        }
+        if let Err(e) = self.config.set_region(&actual_region) {
+            tracing::warn!("Failed to save region to config: {}", e);
+        }
         
         Ok(())
     }
@@ -1052,9 +1058,13 @@ impl App {
                 self.profile = profile.to_string();
                 self.region = actual_region.clone();
                 
-                // Save to config
-                let _ = self.config.set_profile(profile);
-                let _ = self.config.set_region(&actual_region);
+                // Save to config (log errors but don't fail profile switch)
+                if let Err(e) = self.config.set_profile(profile) {
+                    tracing::warn!("Failed to save profile to config: {}", e);
+                }
+                if let Err(e) = self.config.set_region(&actual_region) {
+                    tracing::warn!("Failed to save region to config: {}", e);
+                }
                 
                 Ok(ProfileSwitchResult::Success)
             }

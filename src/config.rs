@@ -7,6 +7,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use tracing::{debug, warn};
 
 /// User configuration stored on disk
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -14,11 +15,11 @@ pub struct Config {
     /// Last used AWS profile
     #[serde(default)]
     pub profile: Option<String>,
-    
+
     /// Last used AWS region
     #[serde(default)]
     pub region: Option<String>,
-    
+
     /// Last viewed resource type
     #[serde(default)]
     pub last_resource: Option<String>,
@@ -28,41 +29,48 @@ impl Config {
     /// Load config from disk, or return default if not found
     pub fn load() -> Self {
         let path = Self::config_path();
-        
+        debug!("Loading config from {:?}", path);
+
         if path.exists() {
             match fs::read_to_string(&path) {
-                Ok(contents) => {
-                    match serde_yaml::from_str(&contents) {
-                        Ok(config) => return config,
-                        Err(e) => {
-                            eprintln!("Warning: Failed to parse config: {}", e);
-                        }
+                Ok(contents) => match serde_yaml::from_str(&contents) {
+                    Ok(config) => {
+                        debug!("Config loaded successfully: {:?}", config);
+                        return config;
                     }
-                }
+                    Err(e) => {
+                        warn!("Failed to parse config: {}", e);
+                    }
+                },
                 Err(e) => {
-                    eprintln!("Warning: Failed to read config: {}", e);
+                    warn!("Failed to read config: {}", e);
                 }
             }
+        } else {
+            debug!("Config file does not exist, using defaults");
         }
-        
+
         Self::default()
     }
-    
+
     /// Save config to disk
     pub fn save(&self) -> Result<()> {
         let path = Self::config_path();
-        
+        debug!("Saving config to {:?}", path);
+
         // Ensure parent directory exists
         if let Some(parent) = path.parent() {
+            debug!("Creating parent directory: {:?}", parent);
             fs::create_dir_all(parent)?;
         }
-        
+
         let contents = serde_yaml::to_string(self)?;
         fs::write(&path, contents)?;
-        
+        debug!("Config saved successfully: {:?}", self);
+
         Ok(())
     }
-    
+
     /// Get the config file path
     /// Uses XDG config directory if available, otherwise ~/.taws/
     fn config_path() -> PathBuf {
@@ -70,35 +78,37 @@ impl Config {
         if let Some(config_dir) = dirs::config_dir() {
             return config_dir.join("taws").join("config.yaml");
         }
-        
+
         // Fallback to home directory
         if let Some(home) = dirs::home_dir() {
             return home.join(".taws").join("config.yaml");
         }
-        
+
         // Last resort: current directory
         PathBuf::from(".taws").join("config.yaml")
     }
-    
+
     /// Update profile and save
     pub fn set_profile(&mut self, profile: &str) -> Result<()> {
+        debug!("Setting profile to: {}", profile);
         self.profile = Some(profile.to_string());
         self.save()
     }
-    
+
     /// Update region and save
     pub fn set_region(&mut self, region: &str) -> Result<()> {
+        debug!("Setting region to: {}", region);
         self.region = Some(region.to_string());
         self.save()
     }
-    
+
     /// Update last resource and save
     #[allow(dead_code)]
     pub fn set_last_resource(&mut self, resource: &str) -> Result<()> {
         self.last_resource = Some(resource.to_string());
         self.save()
     }
-    
+
     /// Get effective profile (config -> env -> default)
     pub fn effective_profile(&self) -> String {
         // Priority: 1. Environment variable, 2. Config file, 3. Default
@@ -107,7 +117,7 @@ impl Config {
             .or_else(|| self.profile.clone())
             .unwrap_or_else(|| "default".to_string())
     }
-    
+
     /// Get effective region (config -> env -> default)
     pub fn effective_region(&self) -> String {
         // Priority: 1. Environment variable, 2. Config file, 3. Default
@@ -122,14 +132,14 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_default_config() {
         let config = Config::default();
         assert!(config.profile.is_none());
         assert!(config.region.is_none());
     }
-    
+
     #[test]
     fn test_serialize_deserialize() {
         let config = Config {
@@ -137,10 +147,10 @@ mod tests {
             region: Some("eu-west-1".to_string()),
             last_resource: Some("ec2-instances".to_string()),
         };
-        
+
         let yaml = serde_yaml::to_string(&config).unwrap();
         let parsed: Config = serde_yaml::from_str(&yaml).unwrap();
-        
+
         assert_eq!(parsed.profile, config.profile);
         assert_eq!(parsed.region, config.region);
         assert_eq!(parsed.last_resource, config.last_resource);
