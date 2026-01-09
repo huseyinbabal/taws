@@ -25,7 +25,7 @@ fn extract_region_from_s3_url(url: &str) -> Option<String> {
         if let Some(pos) = url_lower.find(prefix) {
             let after_prefix = &url_lower[pos + prefix.len()..];
             // Region format: xx-xxxx-N (e.g., us-west-1, eu-central-1, ap-southeast-2)
-            if let Some(end) = after_prefix.find(".amazonaws.com") {
+                if let Some(end) = after_prefix.find(".amazonaws.") {
                 let region = &after_prefix[..end];
                 // Validate it looks like a region (contains at least one hyphen and ends with digit)
                 if region.contains('-')
@@ -381,10 +381,11 @@ impl AwsHttpClient {
         } else {
             &self.region
         };
+        let domain = Self::endpoint_domain(region);
 
         // Special case for S3
         if service.signing_name == "s3" {
-            return format!("https://s3.{}.amazonaws.com", region);
+            return format!("https://s3.{}.{}", region, domain);
         }
 
         // Special case for global services
@@ -398,9 +399,18 @@ impl AwsHttpClient {
         }
 
         format!(
-            "https://{}.{}.amazonaws.com",
-            service.endpoint_prefix, region
+            "https://{}.{}.{}",
+            service.endpoint_prefix, region, domain
         )
+    }
+
+    /// Determine the endpoint domain for a region (standard vs. sovereign)
+    fn endpoint_domain(region: &str) -> &'static str {
+        if region.starts_with("eusc-") {
+            "amazonaws.eu"
+        } else {
+            "amazonaws.com"
+        }
     }
 
     /// Make a Query protocol request (EC2, IAM, RDS, etc.)
@@ -548,7 +558,8 @@ impl AwsHttpClient {
         let service = get_service("s3").ok_or_else(|| anyhow!("Unknown service: s3"))?;
 
         // Build S3 regional endpoint
-        let endpoint = format!("https://{}.s3.{}.amazonaws.com", bucket, bucket_region);
+        let domain = Self::endpoint_domain(bucket_region);
+        let endpoint = format!("https://{}.s3.{}.{}", bucket, bucket_region, domain);
         let url = format!("{}{}", endpoint, path);
         debug!("URL: {}", url);
 
@@ -569,51 +580,73 @@ impl AwsHttpClient {
 
         // Use HEAD request to any S3 endpoint - AWS returns x-amz-bucket-region header
         // even for 301/400 responses, which tells us the correct region
-        let url = format!("https://{}.s3.amazonaws.com/", bucket);
-
-        let response = self.http_client.head(&url).send().await?;
-
-        // Check x-amz-bucket-region header (present in both success and redirect responses)
-        if let Some(region) = response.headers().get("x-amz-bucket-region") {
-            if let Ok(region_str) = region.to_str() {
-                debug!(
-                    "Bucket {} is in region {} (from x-amz-bucket-region header)",
-                    bucket, region_str
-                );
-                return Ok(region_str.to_string());
-            }
+        let mut domain_candidates = vec!["amazonaws.com"];
+        if self.region.starts_with("eusc-") {
+            domain_candidates.insert(0, "amazonaws.eu");
         }
 
-        // Fallback: if we got a 200, bucket is accessible from us-east-1
-        if response.status().is_success() {
+        for domain in domain_candidates {
+            let url = format!("https://{}.s3.{}/", bucket, domain);
             debug!(
-                "Bucket {} accessible from us-east-1 (HEAD succeeded)",
-                bucket
+                "Probing bucket {} region via {}",
+                bucket, url
             );
-            return Ok("us-east-1".to_string());
-        }
 
-        // If we got a redirect, try to parse the region from the Location header or body
-        if response.status() == reqwest::StatusCode::MOVED_PERMANENTLY {
-            // Check Location header for region hint
-            if let Some(location) = response.headers().get("location") {
-                if let Ok(loc_str) = location.to_str() {
-                    // Location might be like: https://bucket.s3.us-west-1.amazonaws.com/
-                    // or https://bucket.s3-us-west-1.amazonaws.com/
-                    if let Some(region) = extract_region_from_s3_url(loc_str) {
-                        debug!(
-                            "Bucket {} is in region {} (from Location header)",
-                            bucket, region
-                        );
-                        return Ok(region);
+            let response = match self.http_client.head(&url).send().await {
+                Ok(resp) => resp,
+                Err(err) => {
+                    debug!(
+                        "Bucket region probe failed for {}: {}",
+                        url, err
+                    );
+                    continue;
+                }
+            };
+            
+            // Check x-amz-bucket-region header (present in both success and redirect responses)
+            if let Some(region) = response.headers().get("x-amz-bucket-region") {
+                if let Ok(region_str) = region.to_str() {
+                    debug!(
+                        "Bucket {} is in region {} (from x-amz-bucket-region header)",
+                        bucket, region_str
+                    )
+                    return Ok(region_str.to_string());
+                }
+            }
+            
+            // Fallback: if we got a 200, bucket is accessible from the probed region
+            if response.status().is_success() {
+                debug!("Bucket {} accessible via {} (HEAD succeeded)", bucket, domain);
+                return Ok(self.region.clone());
+            }
+            
+            // If we got a redirect, try to parse the region from the Location header or body
+            if response.status() == reqwest::StatusCode::MOVED_PERMANENTLY {
+                // Check Location header for region hint
+                if let Some(location) = response.headers().get("location") {
+                    if let Ok(loc_str) = location.to_str() {
+                        // Location might be like: https://bucket.s3.us-west-1.amazonaws.com/
+                        // or https://bucket.s3-us-west-1.amazonaws.com/
+                        if let Some(region) = extract_region_from_s3_url(loc_str) {
+                            debug!(
+                                "Bucket {} is in region {} (from Location header)",
+                                bucket, region
+                            );
+                            return Ok(region);
+                        }
                     }
                 }
             }
         }
 
-        // Default to us-east-1
-        debug!("Bucket {} defaulting to us-east-1", bucket);
-        Ok("us-east-1".to_string())
+        // Default to currently selected region for sovereign clouds, otherwise us-east-1
+        if self.region.starts_with("eusc-") {
+            debug!("Bucket {} defaulting to current region {}", bucket, self.region);
+            Ok(self.region.clone())
+        } else {
+            debug!("Bucket {} defaulting to us-east-1", bucket);
+            Ok("us-east-1".to_string())
+        }
     }
 
     /// Make a signed request
