@@ -121,13 +121,13 @@ fn render_shortcuts_column(f: &mut Frame, app: &App, area: Rect) {
 fn render_region_shortcuts(f: &mut Frame, app: &App, area: Rect) {
     let mut lines: Vec<Line> = Vec::new();
 
-    if app.region_shortcuts.is_empty() {
+    if app.recent_regions.is_empty() {
         lines.push(Line::from(Span::styled(
-            "No shortcuts configured",
+            "No recent regions",
             Style::default().fg(Color::DarkGray),
         )));
     } else {
-        for (idx, region) in app.region_shortcuts.iter().enumerate() {
+        for (idx, region) in app.recent_regions.iter().enumerate() {
             let is_current = region == &app.region;
             let style = if is_current {
                 Style::default()
@@ -155,7 +155,7 @@ fn render_region_shortcuts(f: &mut Frame, app: &App, area: Rect) {
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::raw(" Edit"),
+        Span::raw(" Jump to region"),
     ]));
 
     let paragraph = Paragraph::new(lines);

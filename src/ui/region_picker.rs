@@ -1,4 +1,4 @@
-use crate::app::{App, MAX_REGION_SHORTCUTS};
+use crate::app::App;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -8,19 +8,18 @@ use ratatui::{
 };
 
 pub fn render(f: &mut Frame, app: &App) {
-    let Some(state) = app.region_shortcut_state() else {
+    let Some(state) = app.region_picker_state() else {
         return;
     };
 
     let area = centered_rect(60, 70, f.area());
     f.render_widget(Clear, area);
 
-    let title = format!(" Region Shortcuts (max {}) ", MAX_REGION_SHORTCUTS);
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
         .title(Span::styled(
-            title,
+            " Select Region ",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
@@ -39,32 +38,24 @@ pub fn render(f: &mut Frame, app: &App) {
         .split(inner);
 
     let instructions = Paragraph::new(Line::from(vec![
-        Span::styled("SPACE", Style::default().fg(Color::Yellow)),
-        Span::raw(" toggle  "),
         Span::styled("ENTER", Style::default().fg(Color::Yellow)),
-        Span::raw(" save  "),
+        Span::raw(" jump  "),
         Span::styled("ESC", Style::default().fg(Color::Yellow)),
         Span::raw(" cancel"),
     ]));
     f.render_widget(instructions, chunks[0]);
 
     let rows = app.available_regions.iter().map(|region| {
-        let is_selected = state.selection.iter().any(|selected| selected == region);
-        let marker = if is_selected { "[x]" } else { "[ ]" };
         let style = if region == &app.region {
-            Style::default().fg(Color::Green)
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::White)
         };
-        Row::new(vec![Cell::from(format!("{} {}", marker, region)).style(style)])
-    });
 
-    let table = Table::new(rows, [Constraint::Percentage(100)]).row_highlight_style(
-        Style::default()
-            .bg(Color::DarkGray)
-            .fg(Color::White)
-            .add_modifier(Modifier::BOLD),
-    );
+        Row::new(vec![Cell::from(format!("{}", region)).style(style)])
+    });
 
     let mut table_state = TableState::default();
     if app.available_regions.is_empty() {
@@ -73,18 +64,26 @@ pub fn render(f: &mut Frame, app: &App) {
         let max_index = app.available_regions.len().saturating_sub(1);
         table_state.select(Some(state.cursor.min(max_index)));
     }
+
+    let table = Table::new(rows, [Constraint::Percentage(100)]).row_highlight_style(
+        Style::default()
+            .bg(Color::DarkGray)
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD),
+    );
     f.render_stateful_widget(table, chunks[1], &mut table_state);
 
-    let message = state
-        .message
-        .clone()
-        .unwrap_or_else(|| format!("Select up to {} regions", MAX_REGION_SHORTCUTS));
+    let footer = if let Some(region) = app.available_regions.get(state.cursor) {
+        format!("Jump to {}", region)
+    } else {
+        "No region selected".to_string()
+    };
 
-    let message_line = Paragraph::new(Line::from(Span::styled(
-        message,
+    let footer_line = Paragraph::new(Line::from(Span::styled(
+        footer,
         Style::default().fg(Color::DarkGray),
     )));
-    f.render_widget(message_line, chunks[2]);
+    f.render_widget(footer_line, chunks[2]);
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {

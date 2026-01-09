@@ -28,7 +28,7 @@ async fn handle_key_event(app: &mut App, key: KeyEvent) -> Result<bool> {
         Mode::Warning => handle_warning_mode(app, key),
         Mode::Profiles => handle_profiles_mode(app, key).await,
         Mode::Regions => handle_regions_mode(app, key).await,
-        Mode::RegionShortcuts => handle_region_shortcuts_mode(app, key),
+        Mode::RegionPicker => handle_region_picker_mode(app, key).await,
         Mode::SsoLogin => handle_sso_login_mode(app, key).await,
         Mode::LogTail => handle_log_tail_mode(app, key).await,
     }
@@ -46,13 +46,13 @@ async fn handle_normal_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
 
         // Open region shortcut editor
         KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            app.enter_region_shortcut_mode();
+            app.enter_region_picker_mode();
         }
 
         // Region shortcuts via number keys
         KeyCode::Char(digit) if digit.is_ascii_digit() && key.modifiers.is_empty() => {
             let idx = digit.to_digit(10).unwrap_or_default() as usize;
-            if let Some(region) = app.region_shortcuts.get(idx).cloned() {
+            if let Some(region) = app.recent_regions.get(idx).cloned() {
                 app.switch_region(&region).await?;
                 app.refresh_current().await?;
             }
@@ -439,10 +439,10 @@ async fn handle_regions_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
     Ok(false)
 }
 
-fn handle_region_shortcuts_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
+async fn handle_region_picker_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
     match key.code {
         KeyCode::Esc | KeyCode::Char('q') => {
-            app.cancel_region_shortcut_mode();
+            app.cancel_region_picker_mode();
         }
         KeyCode::Char('j') | KeyCode::Down => {
             app.next();
@@ -462,11 +462,8 @@ fn handle_region_shortcuts_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
         KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
             app.page_up(10);
         }
-        KeyCode::Char(' ') => {
-            app.toggle_region_shortcut();
-        }
         KeyCode::Enter => {
-            app.confirm_region_shortcuts();
+            app.pick_region_from_picker().await?;
         }
         _ => {}
     }
