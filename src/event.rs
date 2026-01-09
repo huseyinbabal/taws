@@ -28,20 +28,11 @@ async fn handle_key_event(app: &mut App, key: KeyEvent) -> Result<bool> {
         Mode::Warning => handle_warning_mode(app, key),
         Mode::Profiles => handle_profiles_mode(app, key).await,
         Mode::Regions => handle_regions_mode(app, key).await,
+        Mode::RegionShortcuts => handle_region_shortcuts_mode(app, key),
         Mode::SsoLogin => handle_sso_login_mode(app, key).await,
         Mode::LogTail => handle_log_tail_mode(app, key).await,
     }
 }
-
-// Region shortcuts matching the header display
-const REGION_SHORTCUTS: &[&str] = &[
-    "us-east-1",
-    "us-west-2",
-    "eu-west-1",
-    "eu-central-1",
-    "ap-northeast-1",
-    "ap-southeast-1",
-];
 
 async fn handle_normal_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
     // If filter is active, handle filter input
@@ -53,40 +44,16 @@ async fn handle_normal_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
         // Quit with Ctrl+C
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => return Ok(true),
 
-        // Region shortcuts (0-5)
-        KeyCode::Char('0') => {
-            if let Some(region) = REGION_SHORTCUTS.first() {
-                app.switch_region(region).await?;
-                app.refresh_current().await?;
-            }
+        // Open region shortcut editor
+        KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.enter_region_shortcut_mode();
         }
-        KeyCode::Char('1') => {
-            if let Some(region) = REGION_SHORTCUTS.get(1) {
-                app.switch_region(region).await?;
-                app.refresh_current().await?;
-            }
-        }
-        KeyCode::Char('2') => {
-            if let Some(region) = REGION_SHORTCUTS.get(2) {
-                app.switch_region(region).await?;
-                app.refresh_current().await?;
-            }
-        }
-        KeyCode::Char('3') => {
-            if let Some(region) = REGION_SHORTCUTS.get(3) {
-                app.switch_region(region).await?;
-                app.refresh_current().await?;
-            }
-        }
-        KeyCode::Char('4') => {
-            if let Some(region) = REGION_SHORTCUTS.get(4) {
-                app.switch_region(region).await?;
-                app.refresh_current().await?;
-            }
-        }
-        KeyCode::Char('5') => {
-            if let Some(region) = REGION_SHORTCUTS.get(5) {
-                app.switch_region(region).await?;
+
+        // Region shortcuts via number keys
+        KeyCode::Char(digit) if digit.is_ascii_digit() && key.modifiers.is_empty() => {
+            let idx = digit.to_digit(10).unwrap_or_default() as usize;
+            if let Some(region) = app.region_shortcuts.get(idx).cloned() {
+                app.switch_region(&region).await?;
                 app.refresh_current().await?;
             }
         }
@@ -466,6 +433,40 @@ async fn handle_regions_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
         }
         KeyCode::Enter => {
             app.select_region().await?;
+        }
+        _ => {}
+    }
+    Ok(false)
+}
+
+fn handle_region_shortcuts_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => {
+            app.cancel_region_shortcut_mode();
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            app.next();
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            app.previous();
+        }
+        KeyCode::Char('g') | KeyCode::Home => {
+            app.go_to_top();
+        }
+        KeyCode::Char('G') | KeyCode::End => {
+            app.go_to_bottom();
+        }
+        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.page_down(10);
+        }
+        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.page_up(10);
+        }
+        KeyCode::Char(' ') => {
+            app.toggle_region_shortcut();
+        }
+        KeyCode::Enter => {
+            app.confirm_region_shortcuts();
         }
         _ => {}
     }

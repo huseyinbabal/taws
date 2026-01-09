@@ -22,6 +22,10 @@ pub struct Config {
     /// Last viewed resource type
     #[serde(default)]
     pub last_resource: Option<String>,
+
+    /// Preferred region shortcuts for the header (<=5 entries)
+    #[serde(default)]
+    pub region_shortcuts: Vec<String>,
 }
 
 impl Config {
@@ -98,6 +102,12 @@ impl Config {
         self.last_resource = Some(resource.to_string());
         self.save()
     }
+
+    /// Update preferred region shortcuts and save
+    pub fn set_region_shortcuts(&mut self, shortcuts: &[String]) -> Result<()> {
+        self.region_shortcuts = shortcuts.to_vec();
+        self.save()
+    }
     
     /// Get effective profile (config -> env -> default)
     pub fn effective_profile(&self) -> String {
@@ -136,6 +146,7 @@ mod tests {
             profile: Some("my-profile".to_string()),
             region: Some("eu-west-1".to_string()),
             last_resource: Some("ec2-instances".to_string()),
+            region_shortcuts: vec!["us-east-1".to_string()],
         };
         
         let yaml = serde_yaml::to_string(&config).unwrap();
@@ -144,5 +155,6 @@ mod tests {
         assert_eq!(parsed.profile, config.profile);
         assert_eq!(parsed.region, config.region);
         assert_eq!(parsed.last_resource, config.last_resource);
+        assert_eq!(parsed.region_shortcuts, config.region_shortcuts);
     }
 }

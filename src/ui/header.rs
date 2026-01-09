@@ -119,19 +119,16 @@ fn render_shortcuts_column(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_region_shortcuts(f: &mut Frame, app: &App, area: Rect) {
-    let regions = [
-        ("0", "us-east-1"),
-        ("1", "us-west-2"),
-        ("2", "eu-west-1"),
-        ("3", "eu-central-1"),
-        ("4", "ap-northeast-1"),
-        ("5", "ap-southeast-1"),
-    ];
+    let mut lines: Vec<Line> = Vec::new();
 
-    let lines: Vec<Line> = regions
-        .iter()
-        .map(|(key, region)| {
-            let is_current = *region == app.region;
+    if app.region_shortcuts.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "No shortcuts configured",
+            Style::default().fg(Color::DarkGray),
+        )));
+    } else {
+        for (idx, region) in app.region_shortcuts.iter().enumerate() {
+            let is_current = region == &app.region;
             let style = if is_current {
                 Style::default()
                     .fg(Color::Green)
@@ -140,13 +137,26 @@ fn render_region_shortcuts(f: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(Color::White)
             };
 
-            Line::from(vec![
-                Span::styled(format!("<{}>", key), Style::default().fg(Color::Yellow)),
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("<{}>", idx),
+                    Style::default().fg(Color::Yellow),
+                ),
                 Span::raw(" "),
-                Span::styled(*region, style),
-            ])
-        })
-        .collect();
+                Span::styled(region.clone(), style),
+            ]));
+        }
+    }
+
+    lines.push(Line::from(vec![
+        Span::styled(
+            "<ctrl+r>",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" Edit"),
+    ]));
 
     let paragraph = Paragraph::new(lines);
     f.render_widget(paragraph, area);

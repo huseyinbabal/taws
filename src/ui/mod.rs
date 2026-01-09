@@ -4,6 +4,7 @@ mod header;
 mod help;
 mod profiles;
 mod regions;
+mod region_shortcuts;
 pub mod splash;
 
 use crate::app::{App, Mode};
@@ -64,6 +65,9 @@ pub fn render(f: &mut Frame, app: &App) {
         }
         Mode::Command => {
             command_box::render(f, app);
+        }
+        Mode::RegionShortcuts => {
+            region_shortcuts::render(f, app);
         }
         _ => {}
     }

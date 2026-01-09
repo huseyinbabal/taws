@@ -9,6 +9,15 @@ use crate::resource::{
 use anyhow::Result;
 use serde_json::Value;
 
+pub const MAX_REGION_SHORTCUTS: usize = 5;
+const DEFAULT_REGION_SHORTCUT_CANDIDATES: &[&str] = &[
+    "us-east-1",
+    "us-west-2",
+    "eu-west-1",
+    "eu-central-1",
+    "ap-northeast-1",
+];
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
     Normal,      // Viewing list
@@ -18,6 +27,7 @@ pub enum Mode {
     Warning,     // Warning/info dialog (OK only)
     Profiles,    // Profile selection
     Regions,     // Region selection
+    RegionShortcuts, // Region shortcut editor overlay
     Describe,    // Viewing JSON details of selected item
     SsoLogin,    // SSO login dialog
     LogTail,     // Tailing CloudWatch logs
@@ -54,6 +64,14 @@ pub struct ParentContext {
     pub display_name: String,
 }
 
+/// Region shortcut editor runtime state
+#[derive(Debug, Clone)]
+pub struct RegionShortcutState {
+    pub cursor: usize,
+    pub selection: Vec<String>,
+    pub message: Option<String>,
+}
+
 pub struct App {
     // AWS Clients
     pub clients: AwsClients,
@@ -86,8 +104,10 @@ pub struct App {
     pub region: String,
     pub available_profiles: Vec<String>,
     pub available_regions: Vec<String>,
+    pub region_shortcuts: Vec<String>,
     pub profiles_selected: usize,
     pub regions_selected: usize,
+    pub region_shortcut_state: Option<RegionShortcutState>,
     
     // Confirmation
     pub pending_action: Option<PendingAction>,
@@ -234,6 +254,7 @@ impl App {
         endpoint_url: Option<String>,
     ) -> Self {
         let filtered_items = initial_items.clone();
+        let region_shortcuts = Self::resolve_region_shortcuts(&config, &available_regions);
         
         Self {
             clients,
@@ -254,8 +275,10 @@ impl App {
             region,
             available_profiles,
             available_regions,
+            region_shortcuts,
             profiles_selected: 0,
             regions_selected: 0,
+            region_shortcut_state: None,
             pending_action: None,
             loading: false,
             error_message: None,
@@ -593,6 +616,13 @@ impl App {
                     self.regions_selected = (self.regions_selected + 1).min(self.available_regions.len() - 1);
                 }
             }
+            Mode::RegionShortcuts => {
+                if let Some(state) = self.region_shortcut_state.as_mut() {
+                    if !self.available_regions.is_empty() {
+                        state.cursor = (state.cursor + 1).min(self.available_regions.len() - 1);
+                    }
+                }
+            }
             _ => {
                 if !self.filtered_items.is_empty() {
                     self.selected = (self.selected + 1).min(self.filtered_items.len() - 1);
@@ -609,6 +639,11 @@ impl App {
             Mode::Regions => {
                 self.regions_selected = self.regions_selected.saturating_sub(1);
             }
+            Mode::RegionShortcuts => {
+                if let Some(state) = self.region_shortcut_state.as_mut() {
+                    state.cursor = state.cursor.saturating_sub(1);
+                }
+            }
             _ => {
                 self.selected = self.selected.saturating_sub(1);
             }
@@ -619,6 +654,11 @@ impl App {
         match self.mode {
             Mode::Profiles => self.profiles_selected = 0,
             Mode::Regions => self.regions_selected = 0,
+            Mode::RegionShortcuts => {
+                if let Some(state) = self.region_shortcut_state.as_mut() {
+                    state.cursor = 0;
+                }
+            }
             _ => self.selected = 0,
         }
     }
@@ -633,6 +673,13 @@ impl App {
             Mode::Regions => {
                 if !self.available_regions.is_empty() {
                     self.regions_selected = self.available_regions.len() - 1;
+                }
+            }
+            Mode::RegionShortcuts => {
+                if let Some(state) = self.region_shortcut_state.as_mut() {
+                    if !self.available_regions.is_empty() {
+                        state.cursor = self.available_regions.len() - 1;
+                    }
                 }
             }
             _ => {
@@ -655,6 +702,13 @@ impl App {
                     self.regions_selected = (self.regions_selected + page_size).min(self.available_regions.len() - 1);
                 }
             }
+            Mode::RegionShortcuts => {
+                if let Some(state) = self.region_shortcut_state.as_mut() {
+                    if !self.available_regions.is_empty() {
+                        state.cursor = (state.cursor + page_size).min(self.available_regions.len() - 1);
+                    }
+                }
+            }
             _ => {
                 if !self.filtered_items.is_empty() {
                     self.selected = (self.selected + page_size).min(self.filtered_items.len() - 1);
@@ -670,6 +724,11 @@ impl App {
             }
             Mode::Regions => {
                 self.regions_selected = self.regions_selected.saturating_sub(page_size);
+            }
+            Mode::RegionShortcuts => {
+                if let Some(state) = self.region_shortcut_state.as_mut() {
+                    state.cursor = state.cursor.saturating_sub(page_size);
+                }
             }
             _ => {
                 self.selected = self.selected.saturating_sub(page_size);
@@ -855,10 +914,190 @@ impl App {
         self.mode = Mode::Regions;
     }
 
+    pub fn enter_region_shortcut_mode(&mut self) {
+        if self.available_regions.is_empty() {
+            self.show_warning("No regions available to configure");
+            return;
+        }
+
+        let mut selection = Self::sanitize_region_shortcuts(
+            self.region_shortcuts.clone(),
+            &self.available_regions,
+        );
+        if selection.is_empty() {
+            selection = Self::default_region_shortcuts(&self.available_regions);
+        }
+        Self::sort_shortcuts_by_availability(&self.available_regions, &mut selection);
+
+        self.region_shortcut_state = Some(RegionShortcutState {
+            cursor: 0,
+            selection,
+            message: None,
+        });
+        self.mode = Mode::RegionShortcuts;
+    }
+
+    pub fn toggle_region_shortcut(&mut self) {
+        if self.available_regions.is_empty() {
+            if let Some(state) = self.region_shortcut_state.as_mut() {
+                state.message = Some("No regions available".to_string());
+            }
+            return;
+        }
+
+        let cursor = match self.region_shortcut_state.as_ref() {
+            Some(state) => state.cursor,
+            None => return,
+        };
+
+        let available_snapshot = self.available_regions.clone();
+
+        let Some(region) = available_snapshot.get(cursor).cloned() else {
+            return;
+        };
+
+        let mut resort = false;
+        {
+            let Some(state) = self.region_shortcut_state.as_mut() else {
+                return;
+            };
+
+            if let Some(idx) = state.selection.iter().position(|r| r == &region) {
+                state.selection.remove(idx);
+                state.message = None;
+                resort = true;
+            } else if state.selection.len() < MAX_REGION_SHORTCUTS {
+                state.selection.push(region);
+                state.message = None;
+                resort = true;
+            } else {
+                state.message = Some(format!("Select up to {} regions", MAX_REGION_SHORTCUTS));
+            }
+        }
+
+        if resort {
+            if let Some(state) = self.region_shortcut_state.as_mut() {
+                Self::sort_shortcuts_by_availability(&available_snapshot, &mut state.selection);
+            }
+        }
+    }
+
+    pub fn confirm_region_shortcuts(&mut self) {
+        let mut selection = {
+            let Some(state) = self.region_shortcut_state.as_mut() else {
+                return;
+            };
+
+            if state.selection.is_empty() {
+                state.message = Some("Select at least one region".to_string());
+                return;
+            }
+
+            let sanitized = Self::sanitize_region_shortcuts(
+                state.selection.clone(),
+                &self.available_regions,
+            );
+
+            if sanitized.is_empty() {
+                state.message = Some("Selected regions are no longer available".to_string());
+                return;
+            }
+
+            sanitized
+        };
+
+        Self::sort_shortcuts_by_availability(&self.available_regions, &mut selection);
+
+        self.region_shortcuts = selection;
+        if let Err(e) = self.config.set_region_shortcuts(&self.region_shortcuts) {
+            self.error_message = Some(format!("Failed to save region shortcuts: {}", e));
+        }
+        self.exit_mode();
+    }
+
+    pub fn cancel_region_shortcut_mode(&mut self) {
+        self.exit_mode();
+    }
+
+    pub fn region_shortcut_state(&self) -> Option<&RegionShortcutState> {
+        self.region_shortcut_state.as_ref()
+    }
+
+    fn resolve_region_shortcuts(config: &Config, available_regions: &[String]) -> Vec<String> {
+        let configured = config.region_shortcuts.clone();
+        let mut sanitized = Self::sanitize_region_shortcuts(configured, available_regions);
+        if sanitized.is_empty() {
+            Self::default_region_shortcuts(available_regions)
+        } else {
+            Self::sort_shortcuts_by_availability(available_regions, &mut sanitized);
+            sanitized
+        }
+    }
+
+    fn sanitize_region_shortcuts(selection: Vec<String>, available_regions: &[String]) -> Vec<String> {
+        let mut normalized: Vec<String> = Vec::new();
+        for region in selection {
+            if normalized.len() == MAX_REGION_SHORTCUTS {
+                break;
+            }
+            if normalized.iter().any(|existing| existing == &region) {
+                continue;
+            }
+            if available_regions.iter().any(|available| available == &region) {
+                normalized.push(region);
+            }
+        }
+        normalized
+    }
+
+    fn default_region_shortcuts(available_regions: &[String]) -> Vec<String> {
+        let mut picks: Vec<String> = Vec::new();
+
+        for candidate in DEFAULT_REGION_SHORTCUT_CANDIDATES {
+            if available_regions.iter().any(|r| r == candidate) {
+                picks.push((*candidate).to_string());
+            }
+            if picks.len() == MAX_REGION_SHORTCUTS {
+                return picks;
+            }
+        }
+
+        for region in available_regions {
+            if !picks.iter().any(|existing| existing == region) {
+                picks.push(region.clone());
+            }
+            if picks.len() == MAX_REGION_SHORTCUTS {
+                break;
+            }
+        }
+
+        if picks.is_empty() {
+            picks.extend(
+                DEFAULT_REGION_SHORTCUT_CANDIDATES
+                    .iter()
+                    .take(MAX_REGION_SHORTCUTS)
+                    .map(|s| s.to_string()),
+            );
+        }
+
+        picks.truncate(MAX_REGION_SHORTCUTS);
+        picks
+    }
+
+    fn sort_shortcuts_by_availability(available_regions: &[String], shortcuts: &mut Vec<String>) {
+        shortcuts.sort_by_key(|region| {
+            available_regions
+                .iter()
+                .position(|r| r == region)
+                .unwrap_or(usize::MAX)
+        });
+    }
+
     pub fn exit_mode(&mut self) {
         self.mode = Mode::Normal;
         self.pending_action = None;
         self.describe_data = None;  // Clear describe data when exiting
+        self.region_shortcut_state = None;
     }
 
     // =========================================================================

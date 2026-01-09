@@ -55,6 +55,7 @@ pub fn render(f: &mut Frame, _app: &App) {
         create_key_line(":vpc", "VPC view"),
         create_key_line(":profiles", "List AWS profiles"),
         create_key_line(":regions", "List AWS regions"),
+        create_key_line("Ctrl+r", "Edit region shortcuts"),
         Line::from(""),
         create_key_line("Esc", "Close / Cancel"),
         create_key_line("Ctrl+c", "Quit application"),
