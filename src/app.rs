@@ -502,22 +502,41 @@ impl App {
             self.filtered_items = self.items.clone();
         } else {
             let resource = self.current_resource();
-            self.filtered_items = self
+            
+            // Collect items with their match scores
+            let mut scored_items: Vec<(i64, Value)> = self
                 .items
                 .iter()
-                .filter(|item| {
+                .filter_map(|item| {
                     if let Some(res) = resource {
                         let name = extract_json_value(item, &res.name_field);
                         let id = extract_json_value(item, &res.id_field);
-                        self.fuzzy_matcher.fuzzy_match(&name, query).is_some()
-                            || self.fuzzy_matcher.fuzzy_match(&id, query).is_some()
+                        let name_score = self.fuzzy_matcher.fuzzy_match(&name, query);
+                        let id_score = self.fuzzy_matcher.fuzzy_match(&id, query);
+                        
+                        // Take the best score from name or id
+                        let best_score = match (name_score, id_score) {
+                            (Some(n), Some(i)) => Some(n.max(i)),
+                            (Some(n), None) => Some(n),
+                            (None, Some(i)) => Some(i),
+                            (None, None) => None,
+                        };
+                        
+                        best_score.map(|score| (score, item.clone()))
                     } else {
                         // Fallback: search in JSON string
-                        self.fuzzy_matcher.fuzzy_match(&item.to_string(), query).is_some()
+                        self.fuzzy_matcher
+                            .fuzzy_match(&item.to_string(), query)
+                            .map(|score| (score, item.clone()))
                     }
                 })
-                .cloned()
                 .collect();
+            
+            // Sort by score descending (higher score = better match)
+            scored_items.sort_by(|a, b| b.0.cmp(&a.0));
+            
+            // Extract just the items
+            self.filtered_items = scored_items.into_iter().map(|(_, item)| item).collect();
         }
 
         // Adjust selection
