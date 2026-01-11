@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Check version match
         run: |
@@ -47,7 +47,7 @@ jobs:
           - aarch64-unknown-linux-gnu
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -72,7 +72,7 @@ jobs:
           tar -czf ../../../taws-${{ matrix.target }}.tar.gz taws
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: taws-${{ matrix.target }}
           path: taws-${{ matrix.target }}.tar.gz
@@ -87,7 +87,7 @@ jobs:
           - aarch64-apple-darwin
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -105,7 +105,7 @@ jobs:
           tar -czf ../../../taws-${{ matrix.target }}.tar.gz taws
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: taws-${{ matrix.target }}
           path: taws-${{ matrix.target }}.tar.gz
@@ -115,7 +115,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -133,7 +133,7 @@ jobs:
           7z a ../../../taws-x86_64-pc-windows-msvc.zip taws.exe
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: taws-x86_64-pc-windows-msvc
           path: taws-x86_64-pc-windows-msvc.zip
@@ -143,10 +143,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: taws-*
           merge-multiple: true
@@ -167,7 +167,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -182,7 +182,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: taws-*
           merge-multiple: true
@@ -200,7 +200,7 @@ jobs:
           echo "linux_arm64=$(sha256sum taws-aarch64-unknown-linux-gnu.tar.gz | cut -d ' ' -f 1)" >> $GITHUB_OUTPUT
 
       - name: Checkout homebrew-tap
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: huseyinbabal/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
@@ -264,7 +264,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download Windows artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: taws-x86_64-pc-windows-msvc
           path: .
@@ -279,7 +279,7 @@ jobs:
           echo "windows_amd64=$(sha256sum taws-x86_64-pc-windows-msvc.zip | cut -d ' ' -f 1)" >> $GITHUB_OUTPUT
 
       - name: Checkout scoop-bucket
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: huseyinbabal/scoop-bucket
           token: ${{ secrets.SCOOP_BUCKET_TOKEN }}

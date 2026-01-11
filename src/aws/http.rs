@@ -3,12 +3,12 @@
 //! Replaces 55 AWS SDK crates with a single HTTP client
 
 use anyhow::{anyhow, Result};
-use reqwest::Client;
-use aws_sigv4::http_request::{sign, SigningSettings, SignableRequest, SignableBody};
+use aws_sigv4::http_request::{sign, SignableBody, SignableRequest, SigningSettings};
 use aws_sigv4::sign::v4::SigningParams;
 use aws_smithy_runtime_api::client::identity::Identity;
-use std::time::SystemTime;
+use reqwest::Client;
 use std::collections::HashMap;
+use std::time::SystemTime;
 use tracing::{debug, trace, warn};
 
 use super::credentials::Credentials;
@@ -19,7 +19,7 @@ use super::credentials::Credentials;
 fn extract_region_from_s3_url(url: &str) -> Option<String> {
     // Look for patterns like "s3.us-west-1.amazonaws.com" or "s3-us-west-1.amazonaws.com"
     let url_lower = url.to_lowercase();
-    
+
     // Find "s3." or "s3-" followed by region
     for prefix in &["s3.", "s3-"] {
         if let Some(pos) = url_lower.find(prefix) {
@@ -28,7 +28,13 @@ fn extract_region_from_s3_url(url: &str) -> Option<String> {
             if let Some(end) = after_prefix.find(".amazonaws.com") {
                 let region = &after_prefix[..end];
                 // Validate it looks like a region (contains at least one hyphen and ends with digit)
-                if region.contains('-') && region.chars().last().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                if region.contains('-')
+                    && region
+                        .chars()
+                        .last()
+                        .map(|c| c.is_ascii_digit())
+                        .unwrap_or(false)
+                {
                     return Some(region.to_string());
                 }
             }
@@ -42,7 +48,7 @@ fn mask_credential(value: &str) -> String {
     if value.len() <= 8 {
         "*".repeat(value.len())
     } else {
-        format!("{}...{}", &value[..4], &value[value.len()-4..])
+        format!("{}...{}", &value[..4], &value[value.len() - 4..])
     }
 }
 
@@ -391,7 +397,10 @@ impl AwsHttpClient {
             }
         }
 
-        format!("https://{}.{}.amazonaws.com", service.endpoint_prefix, region)
+        format!(
+            "https://{}.{}.amazonaws.com",
+            service.endpoint_prefix, region
+        )
     }
 
     /// Make a Query protocol request (EC2, IAM, RDS, etc.)
@@ -409,7 +418,7 @@ impl AwsHttpClient {
 
         let endpoint = self.get_endpoint(&service);
         debug!("Endpoint: {}", endpoint);
-        
+
         // Build query string
         let mut query_params: Vec<(String, String)> = vec![
             ("Action".to_string(), action.to_string()),
@@ -428,7 +437,8 @@ impl AwsHttpClient {
         let url = format!("{}/?{}", endpoint, query_string);
         let body = "";
 
-        self.signed_request(&service, "POST", &url, body, None).await
+        self.signed_request(&service, "POST", &url, body, None)
+            .await
     }
 
     /// Make a JSON protocol request (DynamoDB, ECS, Logs, etc.)
@@ -456,9 +466,13 @@ impl AwsHttpClient {
 
         let mut headers = HashMap::new();
         headers.insert("X-Amz-Target".to_string(), target_header);
-        headers.insert("Content-Type".to_string(), "application/x-amz-json-1.1".to_string());
+        headers.insert(
+            "Content-Type".to_string(),
+            "application/x-amz-json-1.1".to_string(),
+        );
 
-        self.signed_request(&service, "POST", &url, body, Some(headers)).await
+        self.signed_request(&service, "POST", &url, body, Some(headers))
+            .await
     }
 
     /// Make a REST-JSON request (Lambda, API Gateway, EKS, etc.)
@@ -469,7 +483,10 @@ impl AwsHttpClient {
         path: &str,
         body: Option<&str>,
     ) -> Result<String> {
-        debug!("REST-JSON request: service={}, method={}, path={}", service_name, method, path);
+        debug!(
+            "REST-JSON request: service={}, method={}, path={}",
+            service_name, method, path
+        );
         trace!("REST-JSON body: {:?}", body);
 
         let service = get_service(service_name)
@@ -484,7 +501,8 @@ impl AwsHttpClient {
             headers.insert("Content-Type".to_string(), "application/json".to_string());
         }
 
-        self.signed_request(&service, method, &url, body.unwrap_or(""), Some(headers)).await
+        self.signed_request(&service, method, &url, body.unwrap_or(""), Some(headers))
+            .await
     }
 
     /// Make a REST-XML request (S3, Route53, CloudFront)
@@ -495,7 +513,10 @@ impl AwsHttpClient {
         path: &str,
         body: Option<&str>,
     ) -> Result<String> {
-        debug!("REST-XML request: service={}, method={}, path={}", service_name, method, path);
+        debug!(
+            "REST-XML request: service={}, method={}, path={}",
+            service_name, method, path
+        );
 
         let service = get_service(service_name)
             .ok_or_else(|| anyhow!("Unknown service: {}", service_name))?;
@@ -504,7 +525,8 @@ impl AwsHttpClient {
         let url = format!("{}{}", endpoint, path);
         debug!("URL: {}", url);
 
-        self.signed_request(&service, method, &url, body.unwrap_or(""), None).await
+        self.signed_request(&service, method, &url, body.unwrap_or(""), None)
+            .await
     }
 
     /// Make a REST-XML request to a specific S3 bucket region
@@ -518,47 +540,59 @@ impl AwsHttpClient {
         body: Option<&str>,
         bucket_region: &str,
     ) -> Result<String> {
-        debug!("REST-XML S3 bucket request: bucket={}, region={}, method={}, path={}", 
-               bucket, bucket_region, method, path);
+        debug!(
+            "REST-XML S3 bucket request: bucket={}, region={}, method={}, path={}",
+            bucket, bucket_region, method, path
+        );
 
-        let service = get_service("s3")
-            .ok_or_else(|| anyhow!("Unknown service: s3"))?;
+        let service = get_service("s3").ok_or_else(|| anyhow!("Unknown service: s3"))?;
 
         // Build S3 regional endpoint
         let endpoint = format!("https://{}.s3.{}.amazonaws.com", bucket, bucket_region);
         let url = format!("{}{}", endpoint, path);
         debug!("URL: {}", url);
 
-        self.signed_request_with_region(&service, method, &url, body.unwrap_or(""), None, bucket_region).await
+        self.signed_request_with_region(
+            &service,
+            method,
+            &url,
+            body.unwrap_or(""),
+            None,
+            bucket_region,
+        )
+        .await
     }
 
     /// Get the region for an S3 bucket using HEAD request to check x-amz-bucket-region header
     pub async fn get_bucket_region(&self, bucket: &str) -> Result<String> {
         debug!("Getting bucket region for: {}", bucket);
-        
+
         // Use HEAD request to any S3 endpoint - AWS returns x-amz-bucket-region header
         // even for 301/400 responses, which tells us the correct region
         let url = format!("https://{}.s3.amazonaws.com/", bucket);
-        
-        let response = self.http_client
-            .head(&url)
-            .send()
-            .await?;
-        
+
+        let response = self.http_client.head(&url).send().await?;
+
         // Check x-amz-bucket-region header (present in both success and redirect responses)
         if let Some(region) = response.headers().get("x-amz-bucket-region") {
             if let Ok(region_str) = region.to_str() {
-                debug!("Bucket {} is in region {} (from x-amz-bucket-region header)", bucket, region_str);
+                debug!(
+                    "Bucket {} is in region {} (from x-amz-bucket-region header)",
+                    bucket, region_str
+                );
                 return Ok(region_str.to_string());
             }
         }
-        
+
         // Fallback: if we got a 200, bucket is accessible from us-east-1
         if response.status().is_success() {
-            debug!("Bucket {} accessible from us-east-1 (HEAD succeeded)", bucket);
+            debug!(
+                "Bucket {} accessible from us-east-1 (HEAD succeeded)",
+                bucket
+            );
             return Ok("us-east-1".to_string());
         }
-        
+
         // If we got a redirect, try to parse the region from the Location header or body
         if response.status() == reqwest::StatusCode::MOVED_PERMANENTLY {
             // Check Location header for region hint
@@ -567,13 +601,16 @@ impl AwsHttpClient {
                     // Location might be like: https://bucket.s3.us-west-1.amazonaws.com/
                     // or https://bucket.s3-us-west-1.amazonaws.com/
                     if let Some(region) = extract_region_from_s3_url(loc_str) {
-                        debug!("Bucket {} is in region {} (from Location header)", bucket, region);
+                        debug!(
+                            "Bucket {} is in region {} (from Location header)",
+                            bucket, region
+                        );
                         return Ok(region);
                     }
                 }
             }
         }
-        
+
         // Default to us-east-1
         debug!("Bucket {} defaulting to us-east-1", bucket);
         Ok("us-east-1".to_string())
@@ -596,7 +633,9 @@ impl AwsHttpClient {
 
         // Parse URL
         let parsed_url = url::Url::parse(url)?;
-        let host = parsed_url.host_str().ok_or_else(|| anyhow!("Invalid URL"))?;
+        let host = parsed_url
+            .host_str()
+            .ok_or_else(|| anyhow!("Invalid URL"))?;
         let path_and_query = if let Some(query) = parsed_url.query() {
             format!("{}?{}", parsed_url.path(), query)
         } else {
@@ -604,10 +643,8 @@ impl AwsHttpClient {
         };
 
         // Build headers
-        let mut headers = vec![
-            ("host".to_string(), host.to_string()),
-        ];
-        
+        let mut headers = vec![("host".to_string(), host.to_string())];
+
         if let Some(extra) = &extra_headers {
             for (k, v) in extra {
                 headers.push((k.to_lowercase(), v.clone()));
@@ -623,7 +660,7 @@ impl AwsHttpClient {
             "taws",
         );
         let identity: Identity = creds.into();
-        
+
         // Create signing params
         let signing_params = SigningParams::builder()
             .identity(&identity)
@@ -636,7 +673,9 @@ impl AwsHttpClient {
 
         // Create signable request
         // For S3, use UnsignedPayload for GET/DELETE requests without body
-        let is_s3_unsigned = service.signing_name == "s3" && body.is_empty() && (method == "GET" || method == "DELETE");
+        let is_s3_unsigned = service.signing_name == "s3"
+            && body.is_empty()
+            && (method == "GET" || method == "DELETE");
         let signable_body = if is_s3_unsigned {
             SignableBody::UnsignedPayload
         } else if body.is_empty() {
@@ -644,10 +683,13 @@ impl AwsHttpClient {
         } else {
             SignableBody::Bytes(body.as_bytes())
         };
-        
+
         // S3 requires x-amz-content-sha256 header
         if is_s3_unsigned {
-            headers.push(("x-amz-content-sha256".to_string(), "UNSIGNED-PAYLOAD".to_string()));
+            headers.push((
+                "x-amz-content-sha256".to_string(),
+                "UNSIGNED-PAYLOAD".to_string(),
+            ));
         }
 
         let signable_request = SignableRequest::new(
@@ -658,7 +700,8 @@ impl AwsHttpClient {
         )?;
 
         // Sign the request
-        let (signing_instructions, _signature) = sign(signable_request, &signing_params)?.into_parts();
+        let (signing_instructions, _signature) =
+            sign(signable_request, &signing_params)?.into_parts();
 
         // Build the actual request
         let mut request = match method {
@@ -674,7 +717,7 @@ impl AwsHttpClient {
         for (name, value) in signing_instructions.headers() {
             request = request.header(name.to_string(), value.to_string());
         }
-        
+
         // S3 requires x-amz-content-sha256 header explicitly
         if is_s3_unsigned {
             request = request.header("x-amz-content-sha256", "UNSIGNED-PAYLOAD");
@@ -699,10 +742,17 @@ impl AwsHttpClient {
         let text = response.text().await?;
 
         debug!("Response status: {}", status);
-        trace!("Response body (first 2000 chars): {}", &text[..text.len().min(2000)]);
+        trace!(
+            "Response body (first 2000 chars): {}",
+            &text[..text.len().min(2000)]
+        );
 
         if !status.is_success() {
-            warn!("AWS request failed: status={}, body={}", status, &text[..text.len().min(500)]);
+            warn!(
+                "AWS request failed: status={}, body={}",
+                status,
+                &text[..text.len().min(500)]
+            );
             return Err(anyhow!("AWS request failed ({}): {}", status, text));
         }
 
@@ -722,7 +772,9 @@ impl AwsHttpClient {
     ) -> Result<String> {
         // Parse URL
         let parsed_url = url::Url::parse(url)?;
-        let host = parsed_url.host_str().ok_or_else(|| anyhow!("Invalid URL"))?;
+        let host = parsed_url
+            .host_str()
+            .ok_or_else(|| anyhow!("Invalid URL"))?;
         let path_and_query = if let Some(query) = parsed_url.query() {
             format!("{}?{}", parsed_url.path(), query)
         } else {
@@ -730,10 +782,8 @@ impl AwsHttpClient {
         };
 
         // Build headers
-        let mut headers = vec![
-            ("host".to_string(), host.to_string()),
-        ];
-        
+        let mut headers = vec![("host".to_string(), host.to_string())];
+
         if let Some(extra) = &extra_headers {
             for (k, v) in extra {
                 headers.push((k.to_lowercase(), v.clone()));
@@ -749,7 +799,7 @@ impl AwsHttpClient {
             "taws",
         );
         let identity: Identity = creds.into();
-        
+
         // Create signing params with explicit region
         let signing_params = SigningParams::builder()
             .identity(&identity)
@@ -761,7 +811,9 @@ impl AwsHttpClient {
             .into();
 
         // Create signable request
-        let is_s3_unsigned = service.signing_name == "s3" && body.is_empty() && (method == "GET" || method == "DELETE");
+        let is_s3_unsigned = service.signing_name == "s3"
+            && body.is_empty()
+            && (method == "GET" || method == "DELETE");
         let signable_body = if is_s3_unsigned {
             SignableBody::UnsignedPayload
         } else if body.is_empty() {
@@ -769,9 +821,12 @@ impl AwsHttpClient {
         } else {
             SignableBody::Bytes(body.as_bytes())
         };
-        
+
         if is_s3_unsigned {
-            headers.push(("x-amz-content-sha256".to_string(), "UNSIGNED-PAYLOAD".to_string()));
+            headers.push((
+                "x-amz-content-sha256".to_string(),
+                "UNSIGNED-PAYLOAD".to_string(),
+            ));
         }
 
         let signable_request = SignableRequest::new(
@@ -782,7 +837,8 @@ impl AwsHttpClient {
         )?;
 
         // Sign the request
-        let (signing_instructions, _signature) = sign(signable_request, &signing_params)?.into_parts();
+        let (signing_instructions, _signature) =
+            sign(signable_request, &signing_params)?.into_parts();
 
         // Build the actual request
         let mut request = match method {
@@ -798,7 +854,7 @@ impl AwsHttpClient {
         for (name, value) in signing_instructions.headers() {
             request = request.header(name.to_string(), value.to_string());
         }
-        
+
         if is_s3_unsigned {
             request = request.header("x-amz-content-sha256", "UNSIGNED-PAYLOAD");
         }
@@ -822,10 +878,17 @@ impl AwsHttpClient {
         let text = response.text().await?;
 
         debug!("Response status: {}", status);
-        trace!("Response body (first 2000 chars): {}", &text[..text.len().min(2000)]);
+        trace!(
+            "Response body (first 2000 chars): {}",
+            &text[..text.len().min(2000)]
+        );
 
         if !status.is_success() {
-            warn!("AWS request failed: status={}, body={}", status, &text[..text.len().min(500)]);
+            warn!(
+                "AWS request failed: status={}, body={}",
+                status,
+                &text[..text.len().min(500)]
+            );
             return Err(anyhow!("AWS request failed ({}): {}", status, text));
         }
 
@@ -864,7 +927,7 @@ pub fn xml_to_json(xml: &str) -> Result<serde_json::Value> {
                     }
                 }
                 Ok(Event::Text(e)) => {
-                    let text = e.unescape().unwrap_or_default().trim().to_string();
+                    let text = e.xml_content().unwrap_or_default().trim().to_string();
                     if !text.is_empty() {
                         current_text = text;
                     }
