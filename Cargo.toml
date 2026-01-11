@@ -35,7 +35,7 @@ serde_json = "1.0"
 serde_yaml = "0.9"
 
 # XML parsing (for EC2, IAM, RDS Query protocol APIs)
-quick-xml = { version = "0.37", features = ["serialize"] }
+quick-xml = { version = "0.38", features = ["serialize"] }
 
 # CLI argument parsing
 clap = { version = "4.5", features = ["derive"] }
