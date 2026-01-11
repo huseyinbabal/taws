@@ -146,7 +146,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: taws-*
           merge-multiple: true
@@ -182,7 +182,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: taws-*
           merge-multiple: true
@@ -264,7 +264,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download Windows artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: taws-x86_64-pc-windows-msvc
           path: .
