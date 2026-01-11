@@ -47,7 +47,7 @@ tracing-appender = "0.2"
 
 # Utils
 anyhow = "1.0"
-thiserror = "1.0"
+thiserror = "2.0"
 dirs = "6.0"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 sha1 = "0.10"
