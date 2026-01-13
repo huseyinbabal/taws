@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -47,7 +48,12 @@ struct CachedImdsCredentials {
 static IMDS_CACHE: OnceLock<std::sync::Mutex<Option<CachedImdsCredentials>>> = OnceLock::new();
 
 /// Global cache for SSO credentials (keyed by profile name)
-static SSO_CACHE: OnceLock<std::sync::Mutex<HashMap<String, CachedImdsCredentials>>> = OnceLock::new();
+static SSO_CACHE: OnceLock<std::sync::Mutex<HashMap<String, CachedImdsCredentials>>> =
+    OnceLock::new();
+
+/// Global cache for Process credentials (keyed by profile name)
+static PROCESS_CACHE: OnceLock<std::sync::Mutex<HashMap<String, CachedImdsCredentials>>> =
+    OnceLock::new();
 
 /// IMDSv2 metadata endpoint
 const IMDS_ENDPOINT: &str = "http://169.254.169.254";
@@ -233,6 +239,11 @@ fn load_from_credentials_file(profile: &str) -> Result<Credentials> {
         .get(profile)
         .ok_or_else(|| anyhow!("Profile '{}' not found in credentials file", profile))?;
 
+    if let Some(command) = section.get("credential_process") {
+        debug!("Found credential_process for profile '{}'", profile);
+        return load_from_process(profile, command);
+    }
+
     let access_key_id = section
         .get("aws_access_key_id")
         .ok_or_else(|| anyhow!("aws_access_key_id not found for profile '{}'", profile))?
@@ -263,6 +274,11 @@ fn load_from_config_file(profile: &str) -> Result<Credentials> {
     let section = sections
         .get(profile)
         .ok_or_else(|| anyhow!("Profile '{}' not found in config file", profile))?;
+
+    if let Some(command) = section.get("credential_process") {
+        debug!("Found credential_process for profile '{}'", profile);
+        return load_from_process(profile, command);
+    }
 
     // Check for direct credentials in config (less common but valid)
     if let (Some(access_key), Some(secret_key)) = (
@@ -333,6 +349,129 @@ fn load_from_sso(profile: &str) -> Result<Credentials> {
     }
 
     Ok(credentials)
+}
+
+// =============================================================================
+// Process Credentials Support
+// =============================================================================
+
+/// Load credentials from external process
+fn load_from_process(profile: &str, command: &str) -> Result<Credentials> {
+    // Check cache first
+    let cache = PROCESS_CACHE.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
+
+    if let Ok(guard) = cache.lock() {
+        if let Some(cached) = guard.get(profile) {
+            // If the credentials are still valid, use them
+            if cached.expiration > Instant::now() + CREDENTIAL_REFRESH_BUFFER {
+                trace!("Using cached process credentials for profile '{}'", profile);
+                return Ok(cached.credentials.clone());
+            }
+        }
+    }
+
+    // Execute command
+    let (credentials, expiration) = execute_credential_process(command)?;
+
+    // Determine cache expiration
+    // If expiration is provided, use it (temporary credentials).
+    // If not, treat as long-term credentials and cache for a very long time
+    // to avoid re-running the process unnecessarily.
+    let cache_expiration = expiration.unwrap_or_else(|| {
+        Instant::now() + Duration::from_secs(365 * 24 * 60 * 60) // 1 year
+    });
+
+    // Cache the credentials
+    if let Ok(mut guard) = cache.lock() {
+        guard.insert(
+            profile.to_string(),
+            CachedImdsCredentials {
+                credentials: credentials.clone(),
+                expiration: cache_expiration,
+            },
+        );
+        if expiration.is_some() {
+            debug!(
+                "Cached temporary process credentials for profile '{}'",
+                profile
+            );
+        } else {
+            debug!(
+                "Cached long-term process credentials for profile '{}'",
+                profile
+            );
+        }
+    }
+
+    Ok(credentials)
+}
+
+fn execute_credential_process(command: &str) -> Result<(Credentials, Option<Instant>)> {
+    debug!("Executing credential_process: {}", command);
+
+    #[cfg(not(windows))]
+    let shell_cmd = Command::new("sh").arg("-c").arg(command).output();
+
+    #[cfg(windows)]
+    let shell_cmd = Command::new("cmd").arg("/C").arg(command).output();
+
+    let output = shell_cmd.map_err(|e| anyhow!("Failed to execute credential_process: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(anyhow!(
+            "credential_process failed with status {}: {}",
+            output.status,
+            stderr
+        ));
+    }
+
+    let output_str = String::from_utf8(output.stdout)
+        .map_err(|e| anyhow!("Invalid UTF-8 output from credential_process: {}", e))?;
+
+    let json: serde_json::Value = serde_json::from_str(&output_str)
+        .map_err(|e| anyhow!("Failed to parse credential_process output: {}", e))?;
+
+    // Check version (should be 1)
+    if let Some(version) = json.get("Version").and_then(|v| v.as_i64()) {
+        if version != 1 {
+            return Err(anyhow!(
+                "Unsupported credential_process version: {}",
+                version
+            ));
+        }
+    }
+
+    let access_key_id = json
+        .get("AccessKeyId")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("AccessKeyId missing in credential_process output"))?
+        .to_string();
+
+    let secret_access_key = json
+        .get("SecretAccessKey")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("SecretAccessKey missing in credential_process output"))?
+        .to_string();
+
+    let session_token = json
+        .get("SessionToken")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let expiration = json
+        .get("Expiration")
+        .and_then(|v| v.as_str())
+        .and_then(parse_expiration);
+
+    Ok((
+        Credentials {
+            access_key_id,
+            secret_access_key,
+            session_token,
+        },
+        expiration,
+    ))
 }
 
 /// Get the default region for a profile
@@ -696,5 +835,33 @@ aws_secret_access_key = secret_dev
             default_section.get("aws_access_key_id").unwrap(),
             "AKIADEFAULT"
         );
+    }
+
+    #[test]
+    fn test_credential_process_success() {
+        // We use 'echo' to simulate a credential process
+        // This relies on 'echo' being available, which is true on Unix and Windows (usually).
+        let json = r#"{"Version": 1, "AccessKeyId": "test_key", "SecretAccessKey": "test_secret", "SessionToken": "test_token", "Expiration": "2099-01-01T00:00:00Z"}"#;
+
+        // Escape quotes for shell
+        // On unix sh -c 'echo ...'
+        // On windows cmd /C echo ...
+        #[cfg(not(windows))]
+        let cmd = format!("echo '{}'", json);
+        #[cfg(windows)]
+        let cmd = format!("echo {}", json.replace("\"", "\\\""));
+
+        let result = execute_credential_process(&cmd);
+        assert!(
+            result.is_ok(),
+            "credential_process failed: {:?}",
+            result.err()
+        );
+
+        let (creds, exp) = result.unwrap();
+        assert_eq!(creds.access_key_id, "test_key");
+        assert_eq!(creds.secret_access_key, "test_secret");
+        assert_eq!(creds.session_token, Some("test_token".to_string()));
+        assert!(exp.is_some());
     }
 }
