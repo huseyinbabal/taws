@@ -99,6 +99,36 @@ sudo mv taws /usr/local/bin/
 cargo install taws
 ```
 
+### Using Docker
+
+```bash
+# Run interactively
+docker run --rm -it ghcr.io/huseyinbabal/taws
+
+# Launch with a specific profile (mount AWS credentials)
+docker run --rm -it \
+  -v ~/.aws:/root/.aws:ro \
+  ghcr.io/huseyinbabal/taws --profile production
+
+# Launch in a specific region
+docker run --rm -it \
+  -v ~/.aws:/root/.aws:ro \
+  ghcr.io/huseyinbabal/taws --region us-west-2
+
+# Using environment variables
+docker run --rm -it \
+  -e AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
+  -e AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
+  -e AWS_REGION=us-east-1 \
+  ghcr.io/huseyinbabal/taws
+
+# Build locally
+docker build -t taws .
+docker run --rm -it -v ~/.aws:/root/.aws:ro taws
+```
+
+> **Note:** Use `-it` flags for interactive terminal support (required for TUI). Mount your `~/.aws` directory as read-only to use your existing AWS credentials.
+
 ### From Source
 
 taws is built with Rust. Make sure you have Rust 1.70+ installed, along with a C compiler and linker.
