@@ -119,7 +119,7 @@ fn render_shortcuts_column(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_region_shortcuts(f: &mut Frame, app: &App, area: Rect) {
-    // Default regions if no recent history
+    // Default regions to fill slots when recent history is incomplete
     const DEFAULT_REGIONS: &[&str] = &[
         "us-east-1",
         "us-west-2",
@@ -129,20 +129,26 @@ fn render_region_shortcuts(f: &mut Frame, app: &App, area: Rect) {
         "ap-southeast-1",
     ];
 
-    // Use recent regions if available, otherwise defaults
+    // Build region list: recent first, then defaults to fill 6 slots
     let recent = app.config.get_recent_regions();
-    let regions: Vec<&str> = if recent.is_empty() {
-        DEFAULT_REGIONS.to_vec()
-    } else {
-        recent.iter().map(|s| s.as_str()).collect()
-    };
+    let mut regions: Vec<String> = recent.clone();
+
+    // Fill remaining slots with defaults (excluding any already in the list)
+    for default in DEFAULT_REGIONS {
+        if regions.len() >= 6 {
+            break;
+        }
+        if !regions.iter().any(|r| r == *default) {
+            regions.push(default.to_string());
+        }
+    }
 
     let lines: Vec<Line> = regions
         .iter()
         .enumerate()
         .take(6)
         .map(|(idx, region)| {
-            let is_current = *region == app.region;
+            let is_current = region == &app.region;
             let style = if is_current {
                 Style::default()
                     .fg(Color::Green)
@@ -154,7 +160,7 @@ fn render_region_shortcuts(f: &mut Frame, app: &App, area: Rect) {
             Line::from(vec![
                 Span::styled(format!("<{}>", idx), Style::default().fg(Color::Yellow)),
                 Span::raw(" "),
-                Span::styled(*region, style),
+                Span::styled(region.as_str(), style),
             ])
         })
         .collect();
