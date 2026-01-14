@@ -124,6 +124,9 @@ pub fn format_aws_error(err: &anyhow::Error) -> String {
     if err_str.contains("timeout") || err_str.contains("Timeout") {
         return "Request timed out - check connection".to_string();
     }
+    if err_str.contains("not available yet") {
+        return err_str;
+    }
     if err_str.contains("region") {
         return "Region error - check AWS_REGION".to_string();
     }
