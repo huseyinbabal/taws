@@ -27,8 +27,8 @@ fn extract_region_from_s3_url(url: &str) -> Option<String> {
         if let Some(pos) = url_lower.find(prefix) {
             let after_prefix = &url_lower[pos + prefix.len()..];
             // Region format: xx-xxxx-N (e.g., us-west-1, eu-central-1, ap-southeast-2)
-                if let Some(end) = after_prefix.find(".amazonaws.") {
-                    let region = &after_prefix[..end];
+            if let Some(end) = after_prefix.find(".amazonaws.") {
+                let region = &after_prefix[..end];
                 // Validate it looks like a region (contains at least one hyphen and ends with digit)
                 if region.contains('-')
                     && region
@@ -612,22 +612,16 @@ impl AwsHttpClient {
 
         for domain in domain_candidates {
             let url = format!("https://{}.s3.{}/", bucket, domain);
-            debug!(
-                "Probing bucket {} region via {}",
-                bucket, url
-            );
+            debug!("Probing bucket {} region via {}", bucket, url);
 
             let response = match self.http_client.head(&url).send().await {
                 Ok(resp) => resp,
                 Err(err) => {
-                    debug!(
-                        "Bucket region probe failed for {}: {}",
-                        url, err
-                    );
+                    debug!("Bucket region probe failed for {}: {}", url, err);
                     continue;
                 }
             };
-            
+
             // Check x-amz-bucket-region header (present in both success and redirect responses)
             if let Some(region) = response.headers().get("x-amz-bucket-region") {
                 if let Ok(region_str) = region.to_str() {
@@ -638,13 +632,16 @@ impl AwsHttpClient {
                     return Ok(region_str.to_string());
                 }
             }
-            
+
             // Fallback: if we got a 200, bucket is accessible from the probed region
             if response.status().is_success() {
-                debug!("Bucket {} accessible via {} (HEAD succeeded)", bucket, domain);
+                debug!(
+                    "Bucket {} accessible via {} (HEAD succeeded)",
+                    bucket, domain
+                );
                 return Ok(self.region.clone());
             }
-            
+
             // If we got a redirect, try to parse the region from the Location header or body
             if response.status() == reqwest::StatusCode::MOVED_PERMANENTLY {
                 // Check Location header for region hint
@@ -666,7 +663,10 @@ impl AwsHttpClient {
 
         // Default to currently selected region for sovereign clouds, otherwise us-east-1
         if self.region.starts_with(EUSC_PREFIX) {
-            debug!("Bucket {} defaulting to current region {}", bucket, self.region);
+            debug!(
+                "Bucket {} defaulting to current region {}",
+                bucket, self.region
+            );
             Ok(self.region.clone())
         } else {
             debug!("Bucket {} defaulting to us-east-1", bucket);
@@ -1082,7 +1082,9 @@ mod tests {
     fn cloudfront_returns_not_available_error_in_esc() {
         let client = client_with_region("eusc-de-east-1");
         let service = get_service("cloudfront").expect("cloudfront service definition");
-        let err = client.get_endpoint(&service).expect_err("cloudfront should error in esc");
+        let err = client
+            .get_endpoint(&service)
+            .expect_err("cloudfront should error in esc");
         assert_eq!(
             err.to_string(),
             "Service 'cloudfront' is not available in ESC regions yet"

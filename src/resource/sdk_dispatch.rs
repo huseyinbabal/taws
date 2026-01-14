@@ -15,10 +15,15 @@ use tracing::debug;
 
 /// Extract a single string parameter from Value
 fn extract_param(params: &Value, key: &str) -> String {
-    params.get(key)
+    params
+        .get(key)
         .and_then(|v| {
-            v.as_str().map(|s| s.to_string())
-             .or_else(|| v.as_array().and_then(|a| a.first()).and_then(|v| v.as_str()).map(|s| s.to_string()))
+            v.as_str().map(|s| s.to_string()).or_else(|| {
+                v.as_array()
+                    .and_then(|a| a.first())
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
         })
         .unwrap_or_default()
 }
@@ -29,7 +34,7 @@ fn format_bytes(bytes: u64) -> String {
     const MB: u64 = KB * 1024;
     const GB: u64 = MB * 1024;
     const TB: u64 = GB * 1024;
-    
+
     if bytes >= TB {
         format!("{:.1} TB", bytes as f64 / TB as f64)
     } else if bytes >= GB {
@@ -67,10 +72,11 @@ pub fn format_log_timestamp(millis: i64) -> String {
 #[allow(dead_code)]
 fn parse_query_list(xml: &str, list_key: &str, item_key: &str) -> Result<Vec<Value>> {
     let json = xml_to_json(xml)?;
-    
+
     // Navigate through the response structure
     // Typical structure: { "XXXResponse": { "XXXResult": { "Items": { "member": [...] } } } }
-    let items = json.as_object()
+    let items = json
+        .as_object()
         .and_then(|o| o.values().next())
         .and_then(|v| v.as_object())
         .and_then(|o| o.values().next())
@@ -78,7 +84,7 @@ fn parse_query_list(xml: &str, list_key: &str, item_key: &str) -> Result<Vec<Val
         .and_then(|v| v.get(item_key))
         .cloned()
         .unwrap_or(Value::Array(vec![]));
-    
+
     match items {
         Value::Array(arr) => Ok(arr),
         Value::Object(_) => Ok(vec![items]), // Single item
@@ -100,93 +106,145 @@ pub async fn execute_action(
     match (service, action) {
         // EC2 Instance Actions
         ("ec2", "start_instance") => {
-            clients.http.query_request("ec2", "StartInstances", &[
-                ("InstanceId.1", resource_id)
-            ]).await?;
+            clients
+                .http
+                .query_request("ec2", "StartInstances", &[("InstanceId.1", resource_id)])
+                .await?;
             Ok(())
         }
         ("ec2", "stop_instance") => {
-            clients.http.query_request("ec2", "StopInstances", &[
-                ("InstanceId.1", resource_id)
-            ]).await?;
+            clients
+                .http
+                .query_request("ec2", "StopInstances", &[("InstanceId.1", resource_id)])
+                .await?;
             Ok(())
         }
         ("ec2", "reboot_instance") => {
-            clients.http.query_request("ec2", "RebootInstances", &[
-                ("InstanceId.1", resource_id)
-            ]).await?;
+            clients
+                .http
+                .query_request("ec2", "RebootInstances", &[("InstanceId.1", resource_id)])
+                .await?;
             Ok(())
         }
         ("ec2", "terminate_instance") => {
-            clients.http.query_request("ec2", "TerminateInstances", &[
-                ("InstanceId.1", resource_id)
-            ]).await?;
+            clients
+                .http
+                .query_request(
+                    "ec2",
+                    "TerminateInstances",
+                    &[("InstanceId.1", resource_id)],
+                )
+                .await?;
             Ok(())
         }
 
         // Lambda Actions
         ("lambda", "invoke_function") => {
-            clients.http.rest_json_request(
-                "lambda",
-                "POST",
-                &format!("/2015-03-31/functions/{}/invocations", resource_id),
-                Some("{}")
-            ).await?;
+            clients
+                .http
+                .rest_json_request(
+                    "lambda",
+                    "POST",
+                    &format!("/2015-03-31/functions/{}/invocations", resource_id),
+                    Some("{}"),
+                )
+                .await?;
             Ok(())
         }
         ("lambda", "delete_function") => {
-            clients.http.rest_json_request(
-                "lambda",
-                "DELETE",
-                &format!("/2015-03-31/functions/{}", resource_id),
-                None
-            ).await?;
+            clients
+                .http
+                .rest_json_request(
+                    "lambda",
+                    "DELETE",
+                    &format!("/2015-03-31/functions/{}", resource_id),
+                    None,
+                )
+                .await?;
             Ok(())
         }
 
         // RDS Actions
         ("rds", "start_db_instance") => {
-            clients.http.query_request("rds", "StartDBInstance", &[
-                ("DBInstanceIdentifier", resource_id)
-            ]).await?;
+            clients
+                .http
+                .query_request(
+                    "rds",
+                    "StartDBInstance",
+                    &[("DBInstanceIdentifier", resource_id)],
+                )
+                .await?;
             Ok(())
         }
         ("rds", "stop_db_instance") => {
-            clients.http.query_request("rds", "StopDBInstance", &[
-                ("DBInstanceIdentifier", resource_id)
-            ]).await?;
+            clients
+                .http
+                .query_request(
+                    "rds",
+                    "StopDBInstance",
+                    &[("DBInstanceIdentifier", resource_id)],
+                )
+                .await?;
             Ok(())
         }
         ("rds", "reboot_db_instance") => {
-            clients.http.query_request("rds", "RebootDBInstance", &[
-                ("DBInstanceIdentifier", resource_id)
-            ]).await?;
+            clients
+                .http
+                .query_request(
+                    "rds",
+                    "RebootDBInstance",
+                    &[("DBInstanceIdentifier", resource_id)],
+                )
+                .await?;
             Ok(())
         }
         ("rds", "delete_db_instance") => {
-            clients.http.query_request("rds", "DeleteDBInstance", &[
-                ("DBInstanceIdentifier", resource_id),
-                ("SkipFinalSnapshot", "true")
-            ]).await?;
+            clients
+                .http
+                .query_request(
+                    "rds",
+                    "DeleteDBInstance",
+                    &[
+                        ("DBInstanceIdentifier", resource_id),
+                        ("SkipFinalSnapshot", "true"),
+                    ],
+                )
+                .await?;
             Ok(())
         }
 
         // ECS Actions
         ("ecs", "delete_cluster") => {
-            clients.http.json_request("ecs", "DeleteCluster", &json!({
-                "cluster": resource_id
-            }).to_string()).await?;
+            clients
+                .http
+                .json_request(
+                    "ecs",
+                    "DeleteCluster",
+                    &json!({
+                        "cluster": resource_id
+                    })
+                    .to_string(),
+                )
+                .await?;
             Ok(())
         }
         ("ecs", "delete_service") => {
             let parts: Vec<&str> = resource_id.split('/').collect();
             if parts.len() >= 2 {
                 let cluster = parts[parts.len() - 2];
-                clients.http.json_request("ecs", "DeleteService", &json!({
-                    "cluster": cluster,
-                    "service": resource_id,
-                    "force": true
-                }).to_string()).await?;
+                clients
+                    .http
+                    .json_request(
+                        "ecs",
+                        "DeleteService",
+                        &json!({
+                            "cluster": cluster,
+                            "service": resource_id,
+                            "force": true
+                        })
+                        .to_string(),
+                    )
+                    .await?;
             }
             Ok(())
         }
@@ -194,131 +252,193 @@ pub async fn execute_action(
             let parts: Vec<&str> = resource_id.split('/').collect();
             if parts.len() >= 2 {
                 let cluster = parts[parts.len() - 2];
-                clients.http.json_request("ecs", "StopTask", &json!({
-                    "cluster": cluster,
-                    "task": resource_id
-                }).to_string()).await?;
+                clients
+                    .http
+                    .json_request(
+                        "ecs",
+                        "StopTask",
+                        &json!({
+                            "cluster": cluster,
+                            "task": resource_id
+                        })
+                        .to_string(),
+                    )
+                    .await?;
             }
             Ok(())
         }
 
         // EKS Actions
         ("eks", "delete_cluster") => {
-            clients.http.rest_json_request(
-                "eks",
-                "DELETE",
-                &format!("/clusters/{}", resource_id),
-                None
-            ).await?;
+            clients
+                .http
+                .rest_json_request("eks", "DELETE", &format!("/clusters/{}", resource_id), None)
+                .await?;
             Ok(())
         }
 
         // S3 Actions
         ("s3", "delete_bucket") => {
-            clients.http.rest_xml_request(
-                "s3",
-                "DELETE",
-                &format!("/{}", resource_id),
-                None
-            ).await?;
+            clients
+                .http
+                .rest_xml_request("s3", "DELETE", &format!("/{}", resource_id), None)
+                .await?;
             Ok(())
         }
 
         // DynamoDB Actions
         ("dynamodb", "delete_table") => {
-            clients.http.json_request("dynamodb", "DeleteTable", &json!({
-                "TableName": resource_id
-            }).to_string()).await?;
+            clients
+                .http
+                .json_request(
+                    "dynamodb",
+                    "DeleteTable",
+                    &json!({
+                        "TableName": resource_id
+                    })
+                    .to_string(),
+                )
+                .await?;
             Ok(())
         }
 
         // SQS Actions
         ("sqs", "purge_queue") => {
-            clients.http.query_request("sqs", "PurgeQueue", &[
-                ("QueueUrl", resource_id)
-            ]).await?;
+            clients
+                .http
+                .query_request("sqs", "PurgeQueue", &[("QueueUrl", resource_id)])
+                .await?;
             Ok(())
         }
         ("sqs", "delete_queue") => {
-            clients.http.query_request("sqs", "DeleteQueue", &[
-                ("QueueUrl", resource_id)
-            ]).await?;
+            clients
+                .http
+                .query_request("sqs", "DeleteQueue", &[("QueueUrl", resource_id)])
+                .await?;
             Ok(())
         }
 
         // SNS Actions
         ("sns", "delete_topic") => {
-            clients.http.query_request("sns", "DeleteTopic", &[
-                ("TopicArn", resource_id)
-            ]).await?;
+            clients
+                .http
+                .query_request("sns", "DeleteTopic", &[("TopicArn", resource_id)])
+                .await?;
             Ok(())
         }
 
         // CloudFormation Actions
         ("cloudformation", "delete_stack") => {
-            clients.http.query_request("cloudformation", "DeleteStack", &[
-                ("StackName", resource_id)
-            ]).await?;
+            clients
+                .http
+                .query_request(
+                    "cloudformation",
+                    "DeleteStack",
+                    &[("StackName", resource_id)],
+                )
+                .await?;
             Ok(())
         }
 
         // Secrets Manager Actions
         ("secretsmanager", "rotate_secret") => {
-            clients.http.json_request("secretsmanager", "RotateSecret", &json!({
-                "SecretId": resource_id
-            }).to_string()).await?;
+            clients
+                .http
+                .json_request(
+                    "secretsmanager",
+                    "RotateSecret",
+                    &json!({
+                        "SecretId": resource_id
+                    })
+                    .to_string(),
+                )
+                .await?;
             Ok(())
         }
         ("secretsmanager", "delete_secret") => {
-            clients.http.json_request("secretsmanager", "DeleteSecret", &json!({
-                "SecretId": resource_id,
-                "ForceDeleteWithoutRecovery": true
-            }).to_string()).await?;
+            clients
+                .http
+                .json_request(
+                    "secretsmanager",
+                    "DeleteSecret",
+                    &json!({
+                        "SecretId": resource_id,
+                        "ForceDeleteWithoutRecovery": true
+                    })
+                    .to_string(),
+                )
+                .await?;
             Ok(())
         }
 
         // Auto Scaling Actions
         ("autoscaling", "delete_auto_scaling_group") => {
-            clients.http.query_request("autoscaling", "DeleteAutoScalingGroup", &[
-                ("AutoScalingGroupName", resource_id),
-                ("ForceDelete", "true")
-            ]).await?;
+            clients
+                .http
+                .query_request(
+                    "autoscaling",
+                    "DeleteAutoScalingGroup",
+                    &[
+                        ("AutoScalingGroupName", resource_id),
+                        ("ForceDelete", "true"),
+                    ],
+                )
+                .await?;
             Ok(())
         }
 
         // ELBv2 Actions
         ("elbv2", "delete_load_balancer") => {
-            clients.http.query_request("elbv2", "DeleteLoadBalancer", &[
-                ("LoadBalancerArn", resource_id)
-            ]).await?;
+            clients
+                .http
+                .query_request(
+                    "elbv2",
+                    "DeleteLoadBalancer",
+                    &[("LoadBalancerArn", resource_id)],
+                )
+                .await?;
             Ok(())
         }
         ("elbv2", "delete_listener") => {
-            clients.http.query_request("elbv2", "DeleteListener", &[
-                ("ListenerArn", resource_id)
-            ]).await?;
+            clients
+                .http
+                .query_request("elbv2", "DeleteListener", &[("ListenerArn", resource_id)])
+                .await?;
             Ok(())
         }
         ("elbv2", "delete_rule") => {
-            clients.http.query_request("elbv2", "DeleteRule", &[
-                ("RuleArn", resource_id)
-            ]).await?;
+            clients
+                .http
+                .query_request("elbv2", "DeleteRule", &[("RuleArn", resource_id)])
+                .await?;
             Ok(())
         }
         ("elbv2", "delete_target_group") => {
-            clients.http.query_request("elbv2", "DeleteTargetGroup", &[
-                ("TargetGroupArn", resource_id)
-            ]).await?;
+            clients
+                .http
+                .query_request(
+                    "elbv2",
+                    "DeleteTargetGroup",
+                    &[("TargetGroupArn", resource_id)],
+                )
+                .await?;
             Ok(())
         }
         ("elbv2", "deregister_targets") => {
             // resource_id format: "target_group_arn|target_id:port"
             // For simplicity, we'll just use the resource_id as target_group_arn for now
             // The actual target deregistration would need more complex handling
-            clients.http.query_request("elbv2", "DeregisterTargets", &[
-                ("TargetGroupArn", resource_id),
-                ("Targets.member.1.Id", resource_id)
-            ]).await?;
+            clients
+                .http
+                .query_request(
+                    "elbv2",
+                    "DeregisterTargets",
+                    &[
+                        ("TargetGroupArn", resource_id),
+                        ("Targets.member.1.Id", resource_id),
+                    ],
+                )
+                .await?;
             Ok(())
         }
 
@@ -336,23 +456,30 @@ pub async fn describe_resource(
     clients: &AwsClients,
     resource_id: &str,
 ) -> Result<Value> {
-    tracing::debug!("Describing resource: {} with id: {}", resource_key, resource_id);
-    
+    tracing::debug!(
+        "Describing resource: {} with id: {}",
+        resource_key,
+        resource_id
+    );
+
     match resource_key {
         "ec2-instances" => {
-            let xml = clients.http.query_request("ec2", "DescribeInstances", &[
-                ("InstanceId.1", resource_id)
-            ]).await?;
+            let xml = clients
+                .http
+                .query_request("ec2", "DescribeInstances", &[("InstanceId.1", resource_id)])
+                .await?;
             let json = xml_to_json(&xml)?;
-            
+
             // Navigate to the instance data
-            if let Some(reservations) = json.pointer("/DescribeInstancesResponse/reservationSet/item") {
+            if let Some(reservations) =
+                json.pointer("/DescribeInstancesResponse/reservationSet/item")
+            {
                 let reservation = match reservations {
                     Value::Array(arr) => arr.first().cloned(),
                     obj @ Value::Object(_) => Some(obj.clone()),
                     _ => None,
                 };
-                
+
                 if let Some(res) = reservation {
                     if let Some(instance) = res.pointer("/instancesSet/item") {
                         let instance = match instance {
@@ -366,42 +493,42 @@ pub async fn describe_resource(
             }
             Err(anyhow!("Instance not found"))
         }
-        
+
         "s3-buckets" => {
             // S3 doesn't have a single describe API, so we fetch multiple properties
             let mut result = json!({
                 "BucketName": resource_id,
             });
-            
+
             // Get bucket location first (this determines the region for other calls)
-            let bucket_region = clients.http.get_bucket_region(resource_id).await
+            let bucket_region = clients
+                .http
+                .get_bucket_region(resource_id)
+                .await
                 .unwrap_or_else(|_| "us-east-1".to_string());
             result["Region"] = json!(&bucket_region);
-            
+
             // Get bucket versioning (using the correct regional endpoint)
-            if let Ok(xml) = clients.http.rest_xml_request_s3_bucket(
-                "GET",
-                resource_id,
-                "?versioning",
-                None,
-                &bucket_region
-            ).await {
+            if let Ok(xml) = clients
+                .http
+                .rest_xml_request_s3_bucket("GET", resource_id, "?versioning", None, &bucket_region)
+                .await
+            {
                 if let Ok(json) = xml_to_json(&xml) {
-                    let status = json.pointer("/VersioningConfiguration/Status")
+                    let status = json
+                        .pointer("/VersioningConfiguration/Status")
                         .and_then(|v| v.as_str())
                         .unwrap_or("Disabled");
                     result["Versioning"] = json!(status);
                 }
             }
-            
+
             // Get bucket encryption (using the correct regional endpoint)
-            if let Ok(xml) = clients.http.rest_xml_request_s3_bucket(
-                "GET",
-                resource_id,
-                "?encryption",
-                None,
-                &bucket_region
-            ).await {
+            if let Ok(xml) = clients
+                .http
+                .rest_xml_request_s3_bucket("GET", resource_id, "?encryption", None, &bucket_region)
+                .await
+            {
                 if let Ok(json) = xml_to_json(&xml) {
                     if let Some(rules) = json.pointer("/ServerSideEncryptionConfiguration/Rule") {
                         result["Encryption"] = rules.clone();
@@ -410,28 +537,38 @@ pub async fn describe_resource(
             } else {
                 result["Encryption"] = json!("None");
             }
-            
+
             Ok(result)
         }
-        
+
         "lambda-functions" => {
-            let response = clients.http.rest_json_request(
-                "lambda",
-                "GET",
-                &format!("/2015-03-31/functions/{}", resource_id),
-                None
-            ).await?;
+            let response = clients
+                .http
+                .rest_json_request(
+                    "lambda",
+                    "GET",
+                    &format!("/2015-03-31/functions/{}", resource_id),
+                    None,
+                )
+                .await?;
             let json: Value = serde_json::from_str(&response)?;
             Ok(json)
         }
-        
+
         "rds-instances" => {
-            let xml = clients.http.query_request("rds", "DescribeDBInstances", &[
-                ("DBInstanceIdentifier", resource_id)
-            ]).await?;
+            let xml = clients
+                .http
+                .query_request(
+                    "rds",
+                    "DescribeDBInstances",
+                    &[("DBInstanceIdentifier", resource_id)],
+                )
+                .await?;
             let json = xml_to_json(&xml)?;
-            
-            if let Some(instances) = json.pointer("/DescribeDBInstancesResponse/DescribeDBInstancesResult/DBInstances/DBInstance") {
+
+            if let Some(instances) = json.pointer(
+                "/DescribeDBInstancesResponse/DescribeDBInstancesResult/DBInstances/DBInstance",
+            ) {
                 let instance = match instances {
                     Value::Array(arr) => arr.first().cloned().unwrap_or(Value::Null),
                     obj @ Value::Object(_) => obj.clone(),
@@ -441,58 +578,64 @@ pub async fn describe_resource(
             }
             Err(anyhow!("RDS instance not found"))
         }
-        
+
         "iam-users" => {
-            let xml = clients.http.query_request("iam", "GetUser", &[
-                ("UserName", resource_id)
-            ]).await?;
+            let xml = clients
+                .http
+                .query_request("iam", "GetUser", &[("UserName", resource_id)])
+                .await?;
             let json = xml_to_json(&xml)?;
-            
+
             if let Some(user) = json.pointer("/GetUserResponse/GetUserResult/User") {
                 return Ok(user.clone());
             }
             Err(anyhow!("IAM user not found"))
         }
-        
+
         "iam-roles" => {
-            let xml = clients.http.query_request("iam", "GetRole", &[
-                ("RoleName", resource_id)
-            ]).await?;
+            let xml = clients
+                .http
+                .query_request("iam", "GetRole", &[("RoleName", resource_id)])
+                .await?;
             let json = xml_to_json(&xml)?;
-            
+
             if let Some(role) = json.pointer("/GetRoleResponse/GetRoleResult/Role") {
                 return Ok(role.clone());
             }
             Err(anyhow!("IAM role not found"))
         }
-        
+
         "dynamodb-tables" => {
-            let response = clients.http.json_request(
-                "dynamodb",
-                "DescribeTable",
-                &json!({ "TableName": resource_id }).to_string()
-            ).await?;
+            let response = clients
+                .http
+                .json_request(
+                    "dynamodb",
+                    "DescribeTable",
+                    &json!({ "TableName": resource_id }).to_string(),
+                )
+                .await?;
             let json: Value = serde_json::from_str(&response)?;
             Ok(json.get("Table").cloned().unwrap_or(json))
         }
-        
+
         "eks-clusters" => {
-            let response = clients.http.rest_json_request(
-                "eks",
-                "GET",
-                &format!("/clusters/{}", resource_id),
-                None
-            ).await?;
+            let response = clients
+                .http
+                .rest_json_request("eks", "GET", &format!("/clusters/{}", resource_id), None)
+                .await?;
             let json: Value = serde_json::from_str(&response)?;
             Ok(json.get("cluster").cloned().unwrap_or(json))
         }
-        
+
         "ecs-clusters" => {
-            let response = clients.http.json_request(
-                "ecs",
-                "DescribeClusters",
-                &json!({ "clusters": [resource_id] }).to_string()
-            ).await?;
+            let response = clients
+                .http
+                .json_request(
+                    "ecs",
+                    "DescribeClusters",
+                    &json!({ "clusters": [resource_id] }).to_string(),
+                )
+                .await?;
             let json: Value = serde_json::from_str(&response)?;
             if let Some(clusters) = json.get("clusters").and_then(|c| c.as_array()) {
                 if let Some(cluster) = clusters.first() {
@@ -501,34 +644,47 @@ pub async fn describe_resource(
             }
             Err(anyhow!("ECS cluster not found"))
         }
-        
+
         "secretsmanager-secrets" => {
-            let response = clients.http.json_request(
-                "secretsmanager",
-                "DescribeSecret",
-                &json!({ "SecretId": resource_id }).to_string()
-            ).await?;
+            let response = clients
+                .http
+                .json_request(
+                    "secretsmanager",
+                    "DescribeSecret",
+                    &json!({ "SecretId": resource_id }).to_string(),
+                )
+                .await?;
             let json: Value = serde_json::from_str(&response)?;
             Ok(json)
         }
-        
+
         "kms-keys" => {
-            let response = clients.http.json_request(
-                "kms",
-                "DescribeKey",
-                &json!({ "KeyId": resource_id }).to_string()
-            ).await?;
+            let response = clients
+                .http
+                .json_request(
+                    "kms",
+                    "DescribeKey",
+                    &json!({ "KeyId": resource_id }).to_string(),
+                )
+                .await?;
             let json: Value = serde_json::from_str(&response)?;
             Ok(json.get("KeyMetadata").cloned().unwrap_or(json))
         }
-        
+
         "elbv2-load-balancers" => {
-            let xml = clients.http.query_request("elbv2", "DescribeLoadBalancers", &[
-                ("LoadBalancerArns.member.1", resource_id)
-            ]).await?;
+            let xml = clients
+                .http
+                .query_request(
+                    "elbv2",
+                    "DescribeLoadBalancers",
+                    &[("LoadBalancerArns.member.1", resource_id)],
+                )
+                .await?;
             let json = xml_to_json(&xml)?;
-            
-            if let Some(lbs) = json.pointer("/DescribeLoadBalancersResponse/DescribeLoadBalancersResult/LoadBalancers/member") {
+
+            if let Some(lbs) = json.pointer(
+                "/DescribeLoadBalancersResponse/DescribeLoadBalancersResult/LoadBalancers/member",
+            ) {
                 let lb = match lbs {
                     Value::Array(arr) => arr.first().cloned().unwrap_or(Value::Null),
                     obj @ Value::Object(_) => obj.clone(),
@@ -538,14 +694,21 @@ pub async fn describe_resource(
             }
             Err(anyhow!("Load balancer not found"))
         }
-        
+
         "elbv2-target-groups" => {
-            let xml = clients.http.query_request("elbv2", "DescribeTargetGroups", &[
-                ("TargetGroupArns.member.1", resource_id)
-            ]).await?;
+            let xml = clients
+                .http
+                .query_request(
+                    "elbv2",
+                    "DescribeTargetGroups",
+                    &[("TargetGroupArns.member.1", resource_id)],
+                )
+                .await?;
             let json = xml_to_json(&xml)?;
-            
-            if let Some(tgs) = json.pointer("/DescribeTargetGroupsResponse/DescribeTargetGroupsResult/TargetGroups/member") {
+
+            if let Some(tgs) = json.pointer(
+                "/DescribeTargetGroupsResponse/DescribeTargetGroupsResult/TargetGroups/member",
+            ) {
                 let tg = match tgs {
                     Value::Array(arr) => arr.first().cloned().unwrap_or(Value::Null),
                     obj @ Value::Object(_) => obj.clone(),
@@ -555,10 +718,13 @@ pub async fn describe_resource(
             }
             Err(anyhow!("Target group not found"))
         }
-        
+
         // Default: return an error indicating describe is not implemented
         _ => {
-            tracing::debug!("No describe implementation for {}, falling back to list data", resource_key);
+            tracing::debug!(
+                "No describe implementation for {}, falling back to list data",
+                resource_key
+            );
             Err(anyhow!("Describe not implemented for {}", resource_key))
         }
     }
@@ -582,7 +748,7 @@ pub async fn invoke_sdk(
         ("iam", "list_users") => {
             let xml = clients.http.query_request("iam", "ListUsers", &[]).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let users = extract_iam_list(&json, "Users", "member");
             let result: Vec<Value> = users.iter().map(|u| {
                 json!({
@@ -593,14 +759,14 @@ pub async fn invoke_sdk(
                     "CreateDate": u.get("CreateDate").and_then(|v| v.as_str()).unwrap_or("-"),
                 })
             }).collect();
-            
+
             Ok(json!({ "users": result }))
         }
 
         ("iam", "list_roles") => {
             let xml = clients.http.query_request("iam", "ListRoles", &[]).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let roles = extract_iam_list(&json, "Roles", "member");
             let result: Vec<Value> = roles.iter().map(|r| {
                 json!({
@@ -612,7 +778,7 @@ pub async fn invoke_sdk(
                     "Description": r.get("Description").and_then(|v| v.as_str()).unwrap_or("-"),
                 })
             }).collect();
-            
+
             Ok(json!({ "roles": result }))
         }
 
@@ -622,7 +788,7 @@ pub async fn invoke_sdk(
                 ("Scope", scope)
             ]).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let policies = extract_iam_list(&json, "Policies", "member");
             let result: Vec<Value> = policies.iter().map(|p| {
                 json!({
@@ -635,14 +801,14 @@ pub async fn invoke_sdk(
                     "IsAttachable": if p.get("IsAttachable").and_then(|v| v.as_str()) == Some("true") { "Yes" } else { "No" },
                 })
             }).collect();
-            
+
             Ok(json!({ "policies": result }))
         }
 
         ("iam", "list_groups") => {
             let xml = clients.http.query_request("iam", "ListGroups", &[]).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let groups = extract_iam_list(&json, "Groups", "member");
             let result: Vec<Value> = groups.iter().map(|g| {
                 json!({
@@ -653,7 +819,7 @@ pub async fn invoke_sdk(
                     "CreateDate": g.get("CreateDate").and_then(|v| v.as_str()).unwrap_or("-"),
                 })
             }).collect();
-            
+
             Ok(json!({ "groups": result }))
         }
 
@@ -663,7 +829,7 @@ pub async fn invoke_sdk(
                 ("UserName", &user_name)
             ]).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let policies = extract_iam_list(&json, "AttachedPolicies", "member");
             let result: Vec<Value> = policies.iter().map(|p| {
                 json!({
@@ -671,7 +837,7 @@ pub async fn invoke_sdk(
                     "PolicyArn": p.get("PolicyArn").and_then(|v| v.as_str()).unwrap_or("-"),
                 })
             }).collect();
-            
+
             Ok(json!({ "attached_policies": result }))
         }
 
@@ -681,7 +847,7 @@ pub async fn invoke_sdk(
                 ("UserName", &user_name)
             ]).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let groups = extract_iam_list(&json, "Groups", "member");
             let result: Vec<Value> = groups.iter().map(|g| {
                 json!({
@@ -690,7 +856,7 @@ pub async fn invoke_sdk(
                     "Arn": g.get("Arn").and_then(|v| v.as_str()).unwrap_or("-"),
                 })
             }).collect();
-            
+
             Ok(json!({ "groups": result }))
         }
 
@@ -700,7 +866,7 @@ pub async fn invoke_sdk(
                 ("UserName", &user_name)
             ]).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let keys = extract_iam_list(&json, "AccessKeyMetadata", "member");
             let result: Vec<Value> = keys.iter().map(|k| {
                 json!({
@@ -709,7 +875,7 @@ pub async fn invoke_sdk(
                     "CreateDate": k.get("CreateDate").and_then(|v| v.as_str()).unwrap_or("-"),
                 })
             }).collect();
-            
+
             Ok(json!({ "access_key_metadata": result }))
         }
 
@@ -719,7 +885,7 @@ pub async fn invoke_sdk(
                 ("RoleName", &role_name)
             ]).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let policies = extract_iam_list(&json, "AttachedPolicies", "member");
             let result: Vec<Value> = policies.iter().map(|p| {
                 json!({
@@ -727,7 +893,7 @@ pub async fn invoke_sdk(
                     "PolicyArn": p.get("PolicyArn").and_then(|v| v.as_str()).unwrap_or("-"),
                 })
             }).collect();
-            
+
             Ok(json!({ "attached_policies": result }))
         }
 
@@ -737,7 +903,7 @@ pub async fn invoke_sdk(
                 ("GroupName", &group_name)
             ]).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let users = extract_iam_list(&json, "Users", "member");
             let result: Vec<Value> = users.iter().map(|u| {
                 json!({
@@ -746,7 +912,7 @@ pub async fn invoke_sdk(
                     "Arn": u.get("Arn").and_then(|v| v.as_str()).unwrap_or("-"),
                 })
             }).collect();
-            
+
             Ok(json!({ "users": result }))
         }
 
@@ -756,9 +922,9 @@ pub async fn invoke_sdk(
         ("ec2", "describe_instances") => {
             let xml = clients.http.query_request("ec2", "DescribeInstances", &[]).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let mut instances: Vec<Value> = Vec::new();
-            
+
             // Navigate: DescribeInstancesResponse > reservationSet > item > instancesSet > item
             if let Some(reservations) = json.pointer("/DescribeInstancesResponse/reservationSet/item") {
                 let reservation_list = match reservations {
@@ -766,7 +932,7 @@ pub async fn invoke_sdk(
                     obj @ Value::Object(_) => vec![obj.clone()],
                     _ => vec![],
                 };
-                
+
                 for reservation in reservation_list {
                     if let Some(instance_set) = reservation.pointer("/instancesSet/item") {
                         let instance_list = match instance_set {
@@ -774,7 +940,7 @@ pub async fn invoke_sdk(
                             obj @ Value::Object(_) => vec![obj.clone()],
                             _ => vec![],
                         };
-                        
+
                         for instance in instance_list {
                             let tags = extract_tags(&instance);
                             instances.push(json!({
@@ -791,14 +957,14 @@ pub async fn invoke_sdk(
                     }
                 }
             }
-            
+
             Ok(json!({ "reservations": instances }))
         }
 
         ("ec2", "describe_vpcs") => {
             let xml = clients.http.query_request("ec2", "DescribeVpcs", &[]).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let vpcs = extract_ec2_list(&json, "vpcSet");
             let result: Vec<Value> = vpcs.iter().map(|vpc| {
                 let tags = extract_tags(vpc);
@@ -811,14 +977,14 @@ pub async fn invoke_sdk(
                     "Tags": tags,
                 })
             }).collect();
-            
+
             Ok(json!({ "vpcs": result }))
         }
 
         ("ec2", "describe_subnets") => {
             let mut query_params: Vec<(&str, &str)> = vec![];
             let vpc_id_str: String;
-            
+
             if let Some(vpc_ids) = params.get("vpc_ids").and_then(|v| v.as_array()) {
                 if let Some(first_vpc) = vpc_ids.first().and_then(|v| v.as_str()) {
                     vpc_id_str = first_vpc.to_string();
@@ -826,10 +992,10 @@ pub async fn invoke_sdk(
                     query_params.push(("Filter.1.Value.1", &vpc_id_str));
                 }
             }
-            
+
             let xml = clients.http.query_request("ec2", "DescribeSubnets", &query_params).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let subnets = extract_ec2_list(&json, "subnetSet");
             let result: Vec<Value> = subnets.iter().map(|subnet| {
                 let tags = extract_tags(subnet);
@@ -843,14 +1009,14 @@ pub async fn invoke_sdk(
                     "Tags": tags,
                 })
             }).collect();
-            
+
             Ok(json!({ "subnets": result }))
         }
 
         ("ec2", "describe_security_groups") => {
             let mut query_params: Vec<(&str, &str)> = vec![];
             let vpc_id_str: String;
-            
+
             if let Some(vpc_ids) = params.get("vpc_ids").and_then(|v| v.as_array()) {
                 if let Some(first_vpc) = vpc_ids.first().and_then(|v| v.as_str()) {
                     vpc_id_str = first_vpc.to_string();
@@ -858,10 +1024,10 @@ pub async fn invoke_sdk(
                     query_params.push(("Filter.1.Value.1", &vpc_id_str));
                 }
             }
-            
+
             let xml = clients.http.query_request("ec2", "DescribeSecurityGroups", &query_params).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let groups = extract_ec2_list(&json, "securityGroupInfo");
             let result: Vec<Value> = groups.iter().map(|sg| {
                 json!({
@@ -872,7 +1038,7 @@ pub async fn invoke_sdk(
                     "OwnerId": sg.pointer("/ownerId").and_then(|v| v.as_str()).unwrap_or("-"),
                 })
             }).collect();
-            
+
             Ok(json!({ "security_groups": result }))
         }
 
@@ -882,24 +1048,24 @@ pub async fn invoke_sdk(
         ("s3", "list_buckets") => {
             let xml = clients.http.rest_xml_request("s3", "GET", "/", None).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let buckets_data = json.pointer("/ListAllMyBucketsResult/Buckets/Bucket");
             let bucket_list = match buckets_data {
                 Some(Value::Array(arr)) => arr.clone(),
                 Some(obj @ Value::Object(_)) => vec![obj.clone()],
                 _ => vec![],
             };
-            
+
             let result: Vec<Value> = bucket_list.iter().map(|b| {
                 json!({
                     "Name": b.pointer("/Name").and_then(|v| v.as_str()).unwrap_or("-"),
                     "CreationDate": b.pointer("/CreationDate").and_then(|v| v.as_str()).unwrap_or("-"),
                 })
             }).collect();
-            
+
             Ok(json!({ "buckets": result }))
         }
-        
+
         ("s3", "list_objects_v2") => {
             // Get bucket name from params
             let bucket = params.get("bucket_names")
@@ -907,7 +1073,7 @@ pub async fn invoke_sdk(
                 .and_then(|arr| arr.first())
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| anyhow!("Bucket name required"))?;
-            
+
             // Get prefix for folder navigation (optional)
             // Can be either a string or array (from ResourceFilter)
             let prefix = params.get("prefix")
@@ -921,22 +1087,22 @@ pub async fn invoke_sdk(
                     }
                 })
                 .unwrap_or_default();
-            
+
             // First, get the bucket's region (S3 buckets are region-specific)
             let bucket_region = clients.http.get_bucket_region(bucket).await?;
             debug!("Bucket {} is in region {}", bucket, bucket_region);
-            
+
             let path = if prefix.is_empty() {
                 "?list-type=2&delimiter=/".to_string()
             } else {
                 format!("?list-type=2&delimiter=/&prefix={}", urlencoding::encode(&prefix))
             };
-            
+
             let xml = clients.http.rest_xml_request_s3_bucket("GET", bucket, &path, None, &bucket_region).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let mut objects: Vec<Value> = vec![];
-            
+
             // Add common prefixes (folders)
             if let Some(prefixes) = json.pointer("/ListBucketResult/CommonPrefixes") {
                 let prefix_list = match prefixes {
@@ -957,7 +1123,7 @@ pub async fn invoke_sdk(
                     }));
                 }
             }
-            
+
             // Add objects (files)
             if let Some(contents) = json.pointer("/ListBucketResult/Contents") {
                 let content_list = match contents {
@@ -984,7 +1150,7 @@ pub async fn invoke_sdk(
                     }));
                 }
             }
-            
+
             Ok(json!({ "objects": objects }))
         }
 
@@ -995,13 +1161,13 @@ pub async fn invoke_sdk(
             // Build URL with pagination support
             let page_token = params.get("_page_token").and_then(|v| v.as_str());
             let max_items = params.get("max_items").and_then(|v| v.as_i64()).unwrap_or(50);
-            
+
             let path = if let Some(token) = page_token {
                 format!("/2015-03-31/functions?MaxItems={}&Marker={}", max_items, urlencoding::encode(token))
             } else {
                 format!("/2015-03-31/functions?MaxItems={}", max_items)
             };
-            
+
             let response = clients.http.rest_json_request(
                 "lambda",
                 "GET",
@@ -1009,7 +1175,7 @@ pub async fn invoke_sdk(
                 None
             ).await?;
             let json: Value = serde_json::from_str(&response)?;
-            
+
             let functions = json.get("Functions").and_then(|v| v.as_array()).cloned().unwrap_or_default();
             let result: Vec<Value> = functions.iter().map(|f| {
                 json!({
@@ -1020,14 +1186,14 @@ pub async fn invoke_sdk(
                     "Description": f.get("Description").and_then(|v| v.as_str()).unwrap_or("-"),
                 })
             }).collect();
-            
+
             // Include next_token in response for pagination
             let next_marker = json.get("NextMarker").and_then(|v| v.as_str());
             let mut response = json!({ "functions": result });
             if let Some(marker) = next_marker {
                 response["_next_token"] = json!(marker);
             }
-            
+
             Ok(response)
         }
 
@@ -1037,7 +1203,7 @@ pub async fn invoke_sdk(
         ("rds", "describe_db_instances") => {
             let xml = clients.http.query_request("rds", "DescribeDBInstances", &[]).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let instances = extract_rds_list(&json, "DBInstances", "DBInstance");
             let result: Vec<Value> = instances.iter().map(|db| {
                 json!({
@@ -1049,7 +1215,7 @@ pub async fn invoke_sdk(
                     "Endpoint": db.pointer("/Endpoint/Address").and_then(|v| v.as_str()).unwrap_or("-"),
                 })
             }).collect();
-            
+
             Ok(json!({ "db_instances": result }))
         }
 
@@ -1059,10 +1225,10 @@ pub async fn invoke_sdk(
             if !db_id.is_empty() {
                 query_params.push(("DBInstanceIdentifier", db_id.as_str()));
             }
-            
+
             let xml = clients.http.query_request("rds", "DescribeDBSnapshots", &query_params).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let snapshots = extract_rds_list(&json, "DBSnapshots", "DBSnapshot");
             let result: Vec<Value> = snapshots.iter().map(|snap| {
                 json!({
@@ -1075,7 +1241,7 @@ pub async fn invoke_sdk(
                     "SnapshotCreateTime": snap.pointer("/SnapshotCreateTime").and_then(|v| v.as_str()).unwrap_or("-"),
                 })
             }).collect();
-            
+
             Ok(json!({ "db_snapshots": result }))
         }
 
@@ -1085,14 +1251,14 @@ pub async fn invoke_sdk(
         ("dynamodb", "list_tables") => {
             let response = clients.http.json_request("dynamodb", "ListTables", "{}").await?;
             let json: Value = serde_json::from_str(&response)?;
-            
+
             let tables = json.get("TableNames").and_then(|v| v.as_array()).cloned().unwrap_or_default();
             let result: Vec<Value> = tables.iter().map(|name| {
                 json!({
                     "TableName": name.as_str().unwrap_or("-"),
                 })
             }).collect();
-            
+
             Ok(json!({ "table_names": result }))
         }
 
@@ -1107,22 +1273,22 @@ pub async fn invoke_sdk(
             } else {
                 json!({ "maxResults": 100 }).to_string()
             };
-            
+
             // List clusters
             let list_response = clients.http.json_request("ecs", "ListClusters", &request_body).await?;
             let list_json: Value = serde_json::from_str(&list_response)?;
             let cluster_arns = list_json.get("clusterArns").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-            
+
             if cluster_arns.is_empty() {
                 return Ok(json!({ "clusters": [] }));
             }
-            
+
             // Describe clusters
             let desc_response = clients.http.json_request("ecs", "DescribeClusters", &json!({
                 "clusters": cluster_arns
             }).to_string()).await?;
             let desc_json: Value = serde_json::from_str(&desc_response)?;
-            
+
             let clusters = desc_json.get("clusters").and_then(|v| v.as_array()).cloned().unwrap_or_default();
             let result: Vec<Value> = clusters.iter().map(|c| {
                 json!({
@@ -1133,14 +1299,14 @@ pub async fn invoke_sdk(
                     "registeredContainerInstancesCount": c.get("registeredContainerInstancesCount").and_then(|v| v.as_i64()).unwrap_or(0),
                 })
             }).collect();
-            
+
             // Include next_token in response for pagination
             let next_token = list_json.get("nextToken").and_then(|v| v.as_str());
             let mut response = json!({ "clusters": result });
             if let Some(token) = next_token {
                 response["_next_token"] = json!(token);
             }
-            
+
             Ok(response)
         }
 
@@ -1149,7 +1315,7 @@ pub async fn invoke_sdk(
             if cluster.is_empty() {
                 return Ok(json!({ "services": [] }));
             }
-            
+
             // Build request with pagination support
             let page_token = params.get("_page_token").and_then(|v| v.as_str());
             let request_body = if let Some(token) = page_token {
@@ -1157,11 +1323,11 @@ pub async fn invoke_sdk(
             } else {
                 json!({ "cluster": cluster, "maxResults": 100 }).to_string()
             };
-            
+
             let list_response = clients.http.json_request("ecs", "ListServices", &request_body).await?;
             let list_json: Value = serde_json::from_str(&list_response)?;
             let service_arns = list_json.get("serviceArns").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-            
+
             // Parse service name from ARN: arn:aws:ecs:region:account:service/cluster/service-name
             let result: Vec<Value> = service_arns.iter().filter_map(|arn| {
                 let arn_str = arn.as_str()?;
@@ -1172,39 +1338,39 @@ pub async fn invoke_sdk(
                     "clusterArn": cluster,
                 }))
             }).collect();
-            
+
             // Include next_token in response for pagination
             let next_token = list_json.get("nextToken").and_then(|v| v.as_str());
             let mut response = json!({ "services": result });
             if let Some(token) = next_token {
                 response["_next_token"] = json!(token);
             }
-            
+
             Ok(response)
         }
 
         ("ecs", "describe_service") => {
             let cluster = extract_param(params, "cluster");
             let service = extract_param(params, "service");
-            
+
             if cluster.is_empty() || service.is_empty() {
                 return Ok(json!({ "service": null }));
             }
-            
+
             let response = clients.http.json_request("ecs", "DescribeServices", &json!({
                 "cluster": cluster,
                 "services": [service]
             }).to_string()).await?;
-            
+
             let json: Value = serde_json::from_str(&response)?;
             let services = json.get("services").and_then(|v| v.as_array());
-            
+
             if let Some(services) = services {
                 if let Some(service) = services.first() {
                     return Ok(service.clone());
                 }
             }
-            
+
             Ok(json!({ "service": null }))
         }
 
@@ -1213,7 +1379,7 @@ pub async fn invoke_sdk(
             if cluster.is_empty() {
                 return Ok(json!({ "tasks": [] }));
             }
-            
+
             // Build request with pagination support
             let page_token = params.get("_page_token").and_then(|v| v.as_str());
             let request_body = if let Some(token) = page_token {
@@ -1221,11 +1387,11 @@ pub async fn invoke_sdk(
             } else {
                 json!({ "cluster": cluster, "maxResults": 100 }).to_string()
             };
-            
+
             let list_response = clients.http.json_request("ecs", "ListTasks", &request_body).await?;
             let list_json: Value = serde_json::from_str(&list_response)?;
             let task_arns = list_json.get("taskArns").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-            
+
             if task_arns.is_empty() {
                 let next_token = list_json.get("nextToken").and_then(|v| v.as_str());
                 let mut response = json!({ "tasks": [] });
@@ -1234,13 +1400,13 @@ pub async fn invoke_sdk(
                 }
                 return Ok(response);
             }
-            
+
             let desc_response = clients.http.json_request("ecs", "DescribeTasks", &json!({
                 "cluster": cluster,
                 "tasks": task_arns
             }).to_string()).await?;
             let desc_json: Value = serde_json::from_str(&desc_response)?;
-            
+
             let tasks = desc_json.get("tasks").and_then(|v| v.as_array()).cloned().unwrap_or_default();
             let result: Vec<Value> = tasks.iter().map(|t| {
                 json!({
@@ -1252,14 +1418,14 @@ pub async fn invoke_sdk(
                     "clusterArn": t.get("clusterArn").and_then(|v| v.as_str()).unwrap_or("-"),
                 })
             }).collect();
-            
+
             // Include next_token in response for pagination
             let next_token = list_json.get("nextToken").and_then(|v| v.as_str());
             let mut response = json!({ "tasks": result });
             if let Some(token) = next_token {
                 response["_next_token"] = json!(token);
             }
-            
+
             Ok(response)
         }
 
@@ -1269,20 +1435,20 @@ pub async fn invoke_sdk(
         ("sqs", "list_queues") => {
             let xml = clients.http.query_request("sqs", "ListQueues", &[]).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let queue_urls = json.pointer("/ListQueuesResponse/ListQueuesResult/QueueUrl");
             let queue_list = match queue_urls {
                 Some(Value::Array(arr)) => arr.clone(),
                 Some(Value::String(s)) => vec![Value::String(s.clone())],
                 _ => vec![],
             };
-            
+
             let result: Vec<Value> = queue_list.iter().map(|url| {
                 json!({
                     "QueueUrl": url.as_str().unwrap_or("-"),
                 })
             }).collect();
-            
+
             Ok(json!({ "queue_urls": result }))
         }
 
@@ -1292,20 +1458,20 @@ pub async fn invoke_sdk(
         ("sns", "list_topics") => {
             let xml = clients.http.query_request("sns", "ListTopics", &[]).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let topics_data = json.pointer("/ListTopicsResponse/ListTopicsResult/Topics/member");
             let topic_list = match topics_data {
                 Some(Value::Array(arr)) => arr.clone(),
                 Some(obj @ Value::Object(_)) => vec![obj.clone()],
                 _ => vec![],
             };
-            
+
             let result: Vec<Value> = topic_list.iter().map(|t| {
                 json!({
                     "TopicArn": t.pointer("/TopicArn").and_then(|v| v.as_str()).unwrap_or("-"),
                 })
             }).collect();
-            
+
             Ok(json!({ "topics": result }))
         }
 
@@ -1315,14 +1481,14 @@ pub async fn invoke_sdk(
         ("cloudformation", "describe_stacks") => {
             let xml = clients.http.query_request("cloudformation", "DescribeStacks", &[]).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let stacks_data = json.pointer("/DescribeStacksResponse/DescribeStacksResult/Stacks/member");
             let stack_list = match stacks_data {
                 Some(Value::Array(arr)) => arr.clone(),
                 Some(obj @ Value::Object(_)) => vec![obj.clone()],
                 _ => vec![],
             };
-            
+
             let result: Vec<Value> = stack_list.iter().map(|stack| {
                 json!({
                     "StackName": stack.pointer("/StackName").and_then(|v| v.as_str()).unwrap_or("-"),
@@ -1333,7 +1499,7 @@ pub async fn invoke_sdk(
                     "Description": stack.pointer("/Description").and_then(|v| v.as_str()).unwrap_or("-"),
                 })
             }).collect();
-            
+
             Ok(json!({ "stacks": result }))
         }
 
@@ -1343,7 +1509,7 @@ pub async fn invoke_sdk(
         ("cloudwatchlogs", "describe_log_groups") => {
             let response = clients.http.json_request("logs", "DescribeLogGroups", "{}").await?;
             let json: Value = serde_json::from_str(&response)?;
-            
+
             let log_groups = json.get("logGroups").and_then(|v| v.as_array()).cloned().unwrap_or_default();
             let result: Vec<Value> = log_groups.iter().map(|lg| {
                 json!({
@@ -1354,13 +1520,13 @@ pub async fn invoke_sdk(
                     "creationTime": lg.get("creationTime").map(|v| v.to_string()).unwrap_or("-".to_string()),
                 })
             }).collect();
-            
+
             Ok(json!({ "log_groups": result }))
         }
 
         ("cloudwatchlogs", "describe_log_streams") => {
             let log_group_name = extract_param(params, "log_group_name");
-            
+
             // Build request with pagination support
             let page_token = params.get("_page_token").and_then(|v| v.as_str());
             let request_body = if let Some(token) = page_token {
@@ -1379,10 +1545,10 @@ pub async fn invoke_sdk(
                     "limit": 50
                 }).to_string()
             };
-            
+
             let response = clients.http.json_request("logs", "DescribeLogStreams", &request_body).await?;
             let json: Value = serde_json::from_str(&response)?;
-            
+
             let log_streams = json.get("logStreams").and_then(|v| v.as_array()).cloned().unwrap_or_default();
             let result: Vec<Value> = log_streams.iter().map(|ls| {
                 // Format timestamps as human-readable dates
@@ -1394,7 +1560,7 @@ pub async fn invoke_sdk(
                     .and_then(|v| v.as_i64())
                     .map(|ts| format_epoch_millis(ts))
                     .unwrap_or("-".to_string());
-                    
+
                 json!({
                     "logStreamName": ls.get("logStreamName").and_then(|v| v.as_str()).unwrap_or("-"),
                     "logGroupName": log_group_name,
@@ -1404,14 +1570,14 @@ pub async fn invoke_sdk(
                     "lastEventTimestamp": ls.get("lastEventTimestamp").and_then(|v| v.as_i64()).unwrap_or(0),
                 })
             }).collect();
-            
+
             // Include next_token in response for pagination
             let next_token = json.get("nextToken").and_then(|v| v.as_str());
             let mut response = json!({ "log_streams": result });
             if let Some(token) = next_token {
                 response["_next_token"] = json!(token);
             }
-            
+
             Ok(response)
         }
 
@@ -1420,24 +1586,24 @@ pub async fn invoke_sdk(
             let log_stream_name = extract_param(params, "log_stream_name");
             let next_token = params.get("next_forward_token").and_then(|v| v.as_str());
             let start_time = params.get("start_time").and_then(|v| v.as_i64());
-            
+
             let mut request = json!({
                 "logGroupName": log_group_name,
                 "logStreamName": log_stream_name,
                 "startFromHead": false,
                 "limit": 100
             });
-            
+
             if let Some(token) = next_token {
                 request["nextToken"] = json!(token);
             }
             if let Some(ts) = start_time {
                 request["startTime"] = json!(ts);
             }
-            
+
             let response = clients.http.json_request("logs", "GetLogEvents", &request.to_string()).await?;
             let json: Value = serde_json::from_str(&response)?;
-            
+
             let events = json.get("events").and_then(|v| v.as_array()).cloned().unwrap_or_default();
             let result: Vec<Value> = events.iter().map(|ev| {
                 json!({
@@ -1446,7 +1612,7 @@ pub async fn invoke_sdk(
                     "ingestionTime": ev.get("ingestionTime").and_then(|v| v.as_i64()).unwrap_or(0),
                 })
             }).collect();
-            
+
             Ok(json!({
                 "events": result,
                 "nextForwardToken": json.get("nextForwardToken").and_then(|v| v.as_str()),
@@ -1465,10 +1631,10 @@ pub async fn invoke_sdk(
             } else {
                 json!({ "MaxResults": 100 }).to_string()
             };
-            
+
             let response = clients.http.json_request("secretsmanager", "ListSecrets", &request_body).await?;
             let json: Value = serde_json::from_str(&response)?;
-            
+
             let secrets = json.get("SecretList").and_then(|v| v.as_array()).cloned().unwrap_or_default();
             let result: Vec<Value> = secrets.iter().map(|secret| {
                 json!({
@@ -1479,14 +1645,14 @@ pub async fn invoke_sdk(
                     "LastChangedDate": secret.get("LastChangedDate").map(|v| v.to_string()).unwrap_or("-".to_string()),
                 })
             }).collect();
-            
+
             // Include next_token in response for pagination
             let next_token = json.get("NextToken").and_then(|v| v.as_str());
             let mut response = json!({ "secrets": result });
             if let Some(token) = next_token {
                 response["_next_token"] = json!(token);
             }
-            
+
             Ok(response)
         }
 
@@ -1501,10 +1667,10 @@ pub async fn invoke_sdk(
             } else {
                 json!({ "MaxResults": 50 }).to_string()
             };
-            
+
             let response = clients.http.json_request("ssm", "DescribeParameters", &request_body).await?;
             let json: Value = serde_json::from_str(&response)?;
-            
+
             let parameters = json.get("Parameters").and_then(|v| v.as_array()).cloned().unwrap_or_default();
             let result: Vec<Value> = parameters.iter().map(|param| {
                 json!({
@@ -1515,14 +1681,14 @@ pub async fn invoke_sdk(
                     "Description": param.get("Description").and_then(|v| v.as_str()).unwrap_or("-"),
                 })
             }).collect();
-            
+
             // Include next_token in response for pagination
             let next_token = json.get("NextToken").and_then(|v| v.as_str());
             let mut response = json!({ "parameters": result });
             if let Some(token) = next_token {
                 response["_next_token"] = json!(token);
             }
-            
+
             Ok(response)
         }
 
@@ -1533,11 +1699,11 @@ pub async fn invoke_sdk(
             let list_response = clients.http.rest_json_request("eks", "GET", "/clusters", None).await?;
             let list_json: Value = serde_json::from_str(&list_response)?;
             let cluster_names = list_json.get("clusters").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-            
+
             if cluster_names.is_empty() {
                 return Ok(json!({ "clusters": [] }));
             }
-            
+
             let mut clusters: Vec<Value> = Vec::new();
             for name in cluster_names {
                 if let Some(name_str) = name.as_str() {
@@ -1561,7 +1727,7 @@ pub async fn invoke_sdk(
                     }
                 }
             }
-            
+
             Ok(json!({ "clusters": clusters }))
         }
 
@@ -1571,7 +1737,7 @@ pub async fn invoke_sdk(
         ("apigateway", "get_rest_apis") => {
             let response = clients.http.rest_json_request("apigateway", "GET", "/restapis", None).await?;
             let json: Value = serde_json::from_str(&response)?;
-            
+
             let items = json.get("item").and_then(|v| v.as_array()).cloned().unwrap_or_default();
             let result: Vec<Value> = items.iter().map(|api| {
                 json!({
@@ -1581,7 +1747,7 @@ pub async fn invoke_sdk(
                     "createdDate": api.get("createdDate").map(|v| v.to_string()).unwrap_or("-".to_string()),
                 })
             }).collect();
-            
+
             Ok(json!({ "items": result }))
         }
 
@@ -1591,14 +1757,14 @@ pub async fn invoke_sdk(
         ("route53", "list_hosted_zones") => {
             let xml = clients.http.rest_xml_request("route53", "GET", "/2013-04-01/hostedzone", None).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let zones_data = json.pointer("/ListHostedZonesResponse/HostedZones/HostedZone");
             let zone_list = match zones_data {
                 Some(Value::Array(arr)) => arr.clone(),
                 Some(obj @ Value::Object(_)) => vec![obj.clone()],
                 _ => vec![],
             };
-            
+
             let result: Vec<Value> = zone_list.iter().map(|zone| {
                 let is_private = zone.pointer("/Config/PrivateZone").and_then(|v| v.as_str()) == Some("true");
                 json!({
@@ -1608,7 +1774,7 @@ pub async fn invoke_sdk(
                     "Config.PrivateZone": if is_private { "Private" } else { "Public" },
                 })
             }).collect();
-            
+
             Ok(json!({ "hosted_zones": result }))
         }
 
@@ -1618,14 +1784,14 @@ pub async fn invoke_sdk(
         ("elasticache", "describe_cache_clusters") => {
             let xml = clients.http.query_request("elasticache", "DescribeCacheClusters", &[]).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let clusters_data = json.pointer("/DescribeCacheClustersResponse/DescribeCacheClustersResult/CacheClusters/CacheCluster");
             let cluster_list = match clusters_data {
                 Some(Value::Array(arr)) => arr.clone(),
                 Some(obj @ Value::Object(_)) => vec![obj.clone()],
                 _ => vec![],
             };
-            
+
             let result: Vec<Value> = cluster_list.iter().map(|cluster| {
                 json!({
                     "CacheClusterId": cluster.pointer("/CacheClusterId").and_then(|v| v.as_str()).unwrap_or("-"),
@@ -1635,7 +1801,7 @@ pub async fn invoke_sdk(
                     "NumCacheNodes": cluster.pointer("/NumCacheNodes").and_then(|v| v.as_str()).unwrap_or("0"),
                 })
             }).collect();
-            
+
             Ok(json!({ "cache_clusters": result }))
         }
 
@@ -1645,14 +1811,14 @@ pub async fn invoke_sdk(
         ("sts", "get_caller_identity") => {
             let xml = clients.http.query_request("sts", "GetCallerIdentity", &[]).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let result_path = json.pointer("/GetCallerIdentityResponse/GetCallerIdentityResult");
             let identity = json!({
                 "Account": result_path.and_then(|r| r.pointer("/Account")).and_then(|v| v.as_str()).unwrap_or("-"),
                 "UserId": result_path.and_then(|r| r.pointer("/UserId")).and_then(|v| v.as_str()).unwrap_or("-"),
                 "Arn": result_path.and_then(|r| r.pointer("/Arn")).and_then(|v| v.as_str()).unwrap_or("-"),
             });
-            
+
             Ok(json!({ "identity": [identity] }))
         }
 
@@ -1662,7 +1828,7 @@ pub async fn invoke_sdk(
         ("ecr", "describe_repositories") => {
             let response = clients.http.json_request("ecr", "DescribeRepositories", "{}").await?;
             let json: Value = serde_json::from_str(&response)?;
-            
+
             let repos = json.get("repositories").and_then(|v| v.as_array()).cloned().unwrap_or_default();
             let result: Vec<Value> = repos.iter().map(|repo| {
                 json!({
@@ -1672,7 +1838,7 @@ pub async fn invoke_sdk(
                     "createdAt": repo.get("createdAt").map(|v| v.to_string()).unwrap_or("-".to_string()),
                 })
             }).collect();
-            
+
             Ok(json!({ "repositories": result }))
         }
 
@@ -1682,10 +1848,10 @@ pub async fn invoke_sdk(
         ("kms", "list_keys_with_details") => {
             let response = clients.http.json_request("kms", "ListKeys", "{}").await?;
             let json: Value = serde_json::from_str(&response)?;
-            
+
             let keys_list = json.get("Keys").and_then(|v| v.as_array()).cloned().unwrap_or_default();
             let mut keys: Vec<Value> = Vec::new();
-            
+
             for key in keys_list {
                 if let Some(key_id) = key.get("KeyId").and_then(|v| v.as_str()) {
                     if let Ok(desc_response) = clients.http.json_request("kms", "DescribeKey", &json!({
@@ -1705,7 +1871,7 @@ pub async fn invoke_sdk(
                     }
                 }
             }
-            
+
             Ok(json!({ "keys": keys }))
         }
 
@@ -1715,14 +1881,14 @@ pub async fn invoke_sdk(
         ("cloudfront", "list_distributions") => {
             let xml = clients.http.rest_xml_request("cloudfront", "GET", "/2020-05-31/distribution", None).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let items_data = json.pointer("/DistributionList/Items/DistributionSummary");
             let item_list = match items_data {
                 Some(Value::Array(arr)) => arr.clone(),
                 Some(obj @ Value::Object(_)) => vec![obj.clone()],
                 _ => vec![],
             };
-            
+
             let result: Vec<Value> = item_list.iter().map(|dist| {
                 json!({
                     "Id": dist.pointer("/Id").and_then(|v| v.as_str()).unwrap_or("-"),
@@ -1731,7 +1897,7 @@ pub async fn invoke_sdk(
                     "Enabled": if dist.pointer("/Enabled").and_then(|v| v.as_str()) == Some("true") { "Yes" } else { "No" },
                 })
             }).collect();
-            
+
             Ok(json!({ "distributions": result }))
         }
 
@@ -1741,7 +1907,7 @@ pub async fn invoke_sdk(
         ("acm", "list_certificates") => {
             let response = clients.http.json_request("acm", "ListCertificates", "{}").await?;
             let json: Value = serde_json::from_str(&response)?;
-            
+
             let certs = json.get("CertificateSummaryList").and_then(|v| v.as_array()).cloned().unwrap_or_default();
             let result: Vec<Value> = certs.iter().map(|cert| {
                 json!({
@@ -1752,7 +1918,7 @@ pub async fn invoke_sdk(
                     "InUse": if cert.get("InUse").and_then(|v| v.as_bool()).unwrap_or(false) { "Yes" } else { "No" },
                 })
             }).collect();
-            
+
             Ok(json!({ "certificates": result }))
         }
 
@@ -1762,7 +1928,7 @@ pub async fn invoke_sdk(
         ("eventbridge", "list_rules") => {
             let response = clients.http.json_request("events", "ListRules", "{}").await?;
             let json: Value = serde_json::from_str(&response)?;
-            
+
             let rules = json.get("Rules").and_then(|v| v.as_array()).cloned().unwrap_or_default();
             let result: Vec<Value> = rules.iter().map(|rule| {
                 json!({
@@ -1773,14 +1939,14 @@ pub async fn invoke_sdk(
                     "Description": rule.get("Description").and_then(|v| v.as_str()).unwrap_or("-"),
                 })
             }).collect();
-            
+
             Ok(json!({ "rules": result }))
         }
 
         ("eventbridge", "list_event_buses") => {
             let response = clients.http.json_request("events", "ListEventBuses", "{}").await?;
             let json: Value = serde_json::from_str(&response)?;
-            
+
             let buses = json.get("EventBuses").and_then(|v| v.as_array()).cloned().unwrap_or_default();
             let result: Vec<Value> = buses.iter().map(|bus| {
                 json!({
@@ -1788,7 +1954,7 @@ pub async fn invoke_sdk(
                     "Arn": bus.get("Arn").and_then(|v| v.as_str()).unwrap_or("-"),
                 })
             }).collect();
-            
+
             Ok(json!({ "event_buses": result }))
         }
 
@@ -1798,7 +1964,7 @@ pub async fn invoke_sdk(
         ("codepipeline", "list_pipelines") => {
             let response = clients.http.json_request("codepipeline", "ListPipelines", "{}").await?;
             let json: Value = serde_json::from_str(&response)?;
-            
+
             let pipelines = json.get("pipelines").and_then(|v| v.as_array()).cloned().unwrap_or_default();
             let result: Vec<Value> = pipelines.iter().map(|pipeline| {
                 json!({
@@ -1808,7 +1974,7 @@ pub async fn invoke_sdk(
                     "updated": pipeline.get("updated").map(|v| v.to_string()).unwrap_or("-".to_string()),
                 })
             }).collect();
-            
+
             Ok(json!({ "pipelines": result }))
         }
 
@@ -1819,16 +1985,16 @@ pub async fn invoke_sdk(
             let list_response = clients.http.json_request("codebuild", "ListProjects", "{}").await?;
             let list_json: Value = serde_json::from_str(&list_response)?;
             let project_names = list_json.get("projects").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-            
+
             if project_names.is_empty() {
                 return Ok(json!({ "projects": [] }));
             }
-            
+
             let batch_response = clients.http.json_request("codebuild", "BatchGetProjects", &json!({
                 "names": project_names
             }).to_string()).await?;
             let batch_json: Value = serde_json::from_str(&batch_response)?;
-            
+
             let projects = batch_json.get("projects").and_then(|v| v.as_array()).cloned().unwrap_or_default();
             let result: Vec<Value> = projects.iter().map(|proj| {
                 json!({
@@ -1837,7 +2003,7 @@ pub async fn invoke_sdk(
                     "created": proj.get("created").map(|v| v.to_string()).unwrap_or("-".to_string()),
                 })
             }).collect();
-            
+
             Ok(json!({ "projects": result }))
         }
 
@@ -1849,7 +2015,7 @@ pub async fn invoke_sdk(
                 "MaxResults": 60
             }).to_string()).await?;
             let json: Value = serde_json::from_str(&response)?;
-            
+
             let pools = json.get("UserPools").and_then(|v| v.as_array()).cloned().unwrap_or_default();
             let result: Vec<Value> = pools.iter().map(|pool| {
                 json!({
@@ -1859,7 +2025,7 @@ pub async fn invoke_sdk(
                     "CreationDate": pool.get("CreationDate").map(|v| v.to_string()).unwrap_or("-".to_string()),
                 })
             }).collect();
-            
+
             Ok(json!({ "user_pools": result }))
         }
 
@@ -1869,7 +2035,7 @@ pub async fn invoke_sdk(
         ("cloudtrail", "describe_trails") => {
             let response = clients.http.json_request("cloudtrail", "DescribeTrails", "{}").await?;
             let json: Value = serde_json::from_str(&response)?;
-            
+
             let trails = json.get("trailList").and_then(|v| v.as_array()).cloned().unwrap_or_default();
             let result: Vec<Value> = trails.iter().map(|trail| {
                 json!({
@@ -1880,7 +2046,7 @@ pub async fn invoke_sdk(
                     "LogFileValidationEnabled": if trail.get("LogFileValidationEnabled").and_then(|v| v.as_bool()).unwrap_or(false) { "Yes" } else { "No" },
                 })
             }).collect();
-            
+
             Ok(json!({ "trails": result }))
         }
 
@@ -1890,14 +2056,14 @@ pub async fn invoke_sdk(
         ("autoscaling", "describe_auto_scaling_groups") => {
             let xml = clients.http.query_request("autoscaling", "DescribeAutoScalingGroups", &[]).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let groups_data = json.pointer("/DescribeAutoScalingGroupsResponse/DescribeAutoScalingGroupsResult/AutoScalingGroups/member");
             let group_list = match groups_data {
                 Some(Value::Array(arr)) => arr.clone(),
                 Some(obj @ Value::Object(_)) => vec![obj.clone()],
                 _ => vec![],
             };
-            
+
             let result: Vec<Value> = group_list.iter().map(|asg| {
                 json!({
                     "AutoScalingGroupName": asg.pointer("/AutoScalingGroupName").and_then(|v| v.as_str()).unwrap_or("-"),
@@ -1908,7 +2074,7 @@ pub async fn invoke_sdk(
                     "AvailabilityZones": asg.pointer("/AvailabilityZones").map(|v| v.to_string()).unwrap_or("-".to_string()),
                 })
             }).collect();
-            
+
             Ok(json!({ "auto_scaling_groups": result }))
         }
 
@@ -1918,7 +2084,7 @@ pub async fn invoke_sdk(
         ("athena", "list_work_groups") => {
             let response = clients.http.json_request("athena", "ListWorkGroups", "{}").await?;
             let json: Value = serde_json::from_str(&response)?;
-            
+
             let workgroups = json.get("WorkGroups").and_then(|v| v.as_array()).cloned().unwrap_or_default();
             let result: Vec<Value> = workgroups.iter().map(|wg| {
                 json!({
@@ -1927,7 +2093,7 @@ pub async fn invoke_sdk(
                     "Description": wg.get("Description").and_then(|v| v.as_str()).unwrap_or("-"),
                 })
             }).collect();
-            
+
             Ok(json!({ "work_groups": result }))
         }
 
@@ -1937,14 +2103,14 @@ pub async fn invoke_sdk(
         ("elbv2", "describe_load_balancers") => {
             let xml = clients.http.query_request("elbv2", "DescribeLoadBalancers", &[]).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let lbs_data = json.pointer("/DescribeLoadBalancersResponse/DescribeLoadBalancersResult/LoadBalancers/member");
             let lb_list = match lbs_data {
                 Some(Value::Array(arr)) => arr.clone(),
                 Some(obj @ Value::Object(_)) => vec![obj.clone()],
                 _ => vec![],
             };
-            
+
             let result: Vec<Value> = lb_list.iter().map(|lb| {
                 let state = lb.pointer("/State/Code").and_then(|v| v.as_str()).unwrap_or("-");
                 json!({
@@ -1958,7 +2124,7 @@ pub async fn invoke_sdk(
                     "CreatedTime": lb.pointer("/CreatedTime").and_then(|v| v.as_str()).unwrap_or("-"),
                 })
             }).collect();
-            
+
             Ok(json!({ "load_balancers": result }))
         }
 
@@ -1967,19 +2133,19 @@ pub async fn invoke_sdk(
             if lb_arn.is_empty() {
                 return Ok(json!({ "listeners": [] }));
             }
-            
+
             let xml = clients.http.query_request("elbv2", "DescribeListeners", &[
                 ("LoadBalancerArn", &lb_arn)
             ]).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let listeners_data = json.pointer("/DescribeListenersResponse/DescribeListenersResult/Listeners/member");
             let listener_list = match listeners_data {
                 Some(Value::Array(arr)) => arr.clone(),
                 Some(obj @ Value::Object(_)) => vec![obj.clone()],
                 _ => vec![],
             };
-            
+
             let result: Vec<Value> = listener_list.iter().map(|listener| {
                 // Get the default action type
                 let default_action = listener.pointer("/DefaultActions/member")
@@ -1991,7 +2157,7 @@ pub async fn invoke_sdk(
                     .and_then(|a| a.pointer("/Type"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("-");
-                
+
                 json!({
                     "ListenerArn": listener.pointer("/ListenerArn").and_then(|v| v.as_str()).unwrap_or("-"),
                     "LoadBalancerArn": listener.pointer("/LoadBalancerArn").and_then(|v| v.as_str()).unwrap_or("-"),
@@ -2001,7 +2167,7 @@ pub async fn invoke_sdk(
                     "DefaultActionType": default_action,
                 })
             }).collect();
-            
+
             Ok(json!({ "listeners": result }))
         }
 
@@ -2010,19 +2176,19 @@ pub async fn invoke_sdk(
             if listener_arn.is_empty() {
                 return Ok(json!({ "rules": [] }));
             }
-            
+
             let xml = clients.http.query_request("elbv2", "DescribeRules", &[
                 ("ListenerArn", &listener_arn)
             ]).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let rules_data = json.pointer("/DescribeRulesResponse/DescribeRulesResult/Rules/member");
             let rule_list = match rules_data {
                 Some(Value::Array(arr)) => arr.clone(),
                 Some(obj @ Value::Object(_)) => vec![obj.clone()],
                 _ => vec![],
             };
-            
+
             let result: Vec<Value> = rule_list.iter().map(|rule| {
                 // Get the first action type and target group
                 let action = rule.pointer("/Actions/member")
@@ -2039,7 +2205,7 @@ pub async fn invoke_sdk(
                     .and_then(|a| a.pointer("/TargetGroupArn"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("-");
-                
+
                 // Summarize conditions
                 let conditions = rule.pointer("/Conditions/member");
                 let conditions_summary = match conditions {
@@ -2054,7 +2220,7 @@ pub async fn invoke_sdk(
                     }
                     _ => "-".to_string(),
                 };
-                
+
                 json!({
                     "RuleArn": rule.pointer("/RuleArn").and_then(|v| v.as_str()).unwrap_or("-"),
                     "Priority": rule.pointer("/Priority").and_then(|v| v.as_str()).unwrap_or("-"),
@@ -2064,28 +2230,28 @@ pub async fn invoke_sdk(
                     "TargetGroupArn": target_group_arn,
                 })
             }).collect();
-            
+
             Ok(json!({ "rules": result }))
         }
 
         ("elbv2", "describe_target_groups") => {
             let lb_arn = extract_param(params, "load_balancer_arn");
             let mut query_params: Vec<(&str, &str)> = vec![];
-            
+
             if !lb_arn.is_empty() {
                 query_params.push(("LoadBalancerArn", &lb_arn));
             }
-            
+
             let xml = clients.http.query_request("elbv2", "DescribeTargetGroups", &query_params).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let tgs_data = json.pointer("/DescribeTargetGroupsResponse/DescribeTargetGroupsResult/TargetGroups/member");
             let tg_list = match tgs_data {
                 Some(Value::Array(arr)) => arr.clone(),
                 Some(obj @ Value::Object(_)) => vec![obj.clone()],
                 _ => vec![],
             };
-            
+
             let result: Vec<Value> = tg_list.iter().map(|tg| {
                 json!({
                     "TargetGroupArn": tg.pointer("/TargetGroupArn").and_then(|v| v.as_str()).unwrap_or("-"),
@@ -2098,7 +2264,7 @@ pub async fn invoke_sdk(
                     "HealthCheckProtocol": tg.pointer("/HealthCheckProtocol").and_then(|v| v.as_str()).unwrap_or("-"),
                 })
             }).collect();
-            
+
             Ok(json!({ "target_groups": result }))
         }
 
@@ -2107,19 +2273,19 @@ pub async fn invoke_sdk(
             if tg_arn.is_empty() {
                 return Ok(json!({ "targets": [] }));
             }
-            
+
             let xml = clients.http.query_request("elbv2", "DescribeTargetHealth", &[
                 ("TargetGroupArn", &tg_arn)
             ]).await?;
             let json = xml_to_json(&xml)?;
-            
+
             let targets_data = json.pointer("/DescribeTargetHealthResponse/DescribeTargetHealthResult/TargetHealthDescriptions/member");
             let target_list = match targets_data {
                 Some(Value::Array(arr)) => arr.clone(),
                 Some(obj @ Value::Object(_)) => vec![obj.clone()],
                 _ => vec![],
             };
-            
+
             let result: Vec<Value> = target_list.iter().map(|t| {
                 json!({
                     "TargetId": t.pointer("/Target/Id").and_then(|v| v.as_str()).unwrap_or("-"),
@@ -2130,7 +2296,7 @@ pub async fn invoke_sdk(
                     "HealthDescription": t.pointer("/TargetHealth/Description").and_then(|v| v.as_str()).unwrap_or("-"),
                 })
             }).collect();
-            
+
             Ok(json!({ "targets": result }))
         }
 
@@ -2152,13 +2318,14 @@ pub async fn invoke_sdk(
 /// Extract list from IAM response
 fn extract_iam_list(json: &Value, list_key: &str, item_key: &str) -> Vec<Value> {
     // IAM structure: { "XXXResponse": { "XXXResult": { "ListKey": { "member": [...] } } } }
-    let result = json.as_object()
+    let result = json
+        .as_object()
         .and_then(|o| o.values().next())
         .and_then(|v| v.as_object())
         .and_then(|o| o.values().next())
         .and_then(|v| v.get(list_key))
         .and_then(|v| v.get(item_key));
-    
+
     match result {
         Some(Value::Array(arr)) => arr.clone(),
         Some(obj @ Value::Object(_)) => vec![obj.clone()],
@@ -2169,11 +2336,12 @@ fn extract_iam_list(json: &Value, list_key: &str, item_key: &str) -> Vec<Value> 
 /// Extract list from EC2 response
 fn extract_ec2_list(json: &Value, set_key: &str) -> Vec<Value> {
     // EC2 structure: { "XXXResponse": { "setKey": { "item": [...] } } }
-    let items = json.as_object()
+    let items = json
+        .as_object()
         .and_then(|o| o.values().next())
         .and_then(|v| v.get(set_key))
         .and_then(|v| v.get("item"));
-    
+
     match items {
         Some(Value::Array(arr)) => arr.clone(),
         Some(obj @ Value::Object(_)) => vec![obj.clone()],
@@ -2184,13 +2352,14 @@ fn extract_ec2_list(json: &Value, set_key: &str) -> Vec<Value> {
 /// Extract list from RDS response
 fn extract_rds_list(json: &Value, list_key: &str, item_key: &str) -> Vec<Value> {
     // RDS structure: { "XXXResponse": { "XXXResult": { "ListKey": { "ItemKey": [...] } } } }
-    let result = json.as_object()
+    let result = json
+        .as_object()
         .and_then(|o| o.values().next())
         .and_then(|v| v.as_object())
         .and_then(|o| o.values().next())
         .and_then(|v| v.get(list_key))
         .and_then(|v| v.get(item_key));
-    
+
     match result {
         Some(Value::Array(arr)) => arr.clone(),
         Some(obj @ Value::Object(_)) => vec![obj.clone()],
@@ -2201,14 +2370,14 @@ fn extract_rds_list(json: &Value, list_key: &str, item_key: &str) -> Vec<Value> 
 /// Extract tags from EC2 resource
 fn extract_tags(resource: &Value) -> Value {
     let mut tags = serde_json::Map::new();
-    
+
     if let Some(tag_set) = resource.pointer("/tagSet/item") {
         let tag_list = match tag_set {
             Value::Array(arr) => arr.clone(),
             obj @ Value::Object(_) => vec![obj.clone()],
             _ => vec![],
         };
-        
+
         for tag in tag_list {
             if let (Some(key), Some(value)) = (
                 tag.pointer("/key").and_then(|v| v.as_str()),
@@ -2218,6 +2387,6 @@ fn extract_tags(resource: &Value) -> Value {
             }
         }
     }
-    
+
     Value::Object(tags)
 }

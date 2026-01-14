@@ -119,9 +119,12 @@ async fn handle_normal_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
                             if id != "-" && !id.is_empty() {
                                 // Block action in readonly mode
                                 if app.readonly {
-                                    app.show_warning("This operation is not supported in read-only mode");
+                                    app.show_warning(
+                                        "This operation is not supported in read-only mode",
+                                    );
                                     action_triggered = true;
-                                } else if let Some(pending) = app.create_pending_action(action, &id) {
+                                } else if let Some(pending) = app.create_pending_action(action, &id)
+                                {
                                     app.enter_confirm_mode(pending);
                                     action_triggered = true;
                                 }
@@ -197,7 +200,7 @@ async fn handle_normal_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
         _ => {
             if let KeyCode::Char(c) = key.code {
                 let mut handled = false;
-                
+
                 // Check if it's a sub-resource shortcut for current resource
                 if let Some(resource) = app.current_resource() {
                     for sub in &resource.sub_resources {
@@ -208,14 +211,17 @@ async fn handle_normal_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
                         }
                     }
                 }
-                
+
                 // Check if it matches an action shortcut
                 if !handled {
                     if let Some(resource) = app.current_resource() {
                         for action in &resource.actions {
                             if action.shortcut.as_deref() == Some(&c.to_string()) {
                                 if let Some(item) = app.selected_item() {
-                                    let id = crate::resource::extract_json_value(item, &resource.id_field);
+                                    let id = crate::resource::extract_json_value(
+                                        item,
+                                        &resource.id_field,
+                                    );
                                     if id != "-" && !id.is_empty() {
                                         // Special handling for log tailing action
                                         if action.sdk_method == "tail_logs" {
@@ -223,11 +229,15 @@ async fn handle_normal_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
                                             handled = true;
                                         // Block action in readonly mode
                                         } else if app.readonly {
-                                            app.show_warning("This operation is not supported in read-only mode");
+                                            app.show_warning(
+                                                "This operation is not supported in read-only mode",
+                                            );
                                             handled = true;
                                         } else if action.requires_confirm() {
                                             // Check if action requires confirmation
-                                            if let Some(pending) = app.create_pending_action(action, &id) {
+                                            if let Some(pending) =
+                                                app.create_pending_action(action, &id)
+                                            {
                                                 app.enter_confirm_mode(pending);
                                                 handled = true;
                                             }
@@ -237,9 +247,12 @@ async fn handle_normal_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
                                                 &resource.service,
                                                 &action.sdk_method,
                                                 &app.clients,
-                                                &id
-                                            ).await {
-                                                app.error_message = Some(format!("Action failed: {}", e));
+                                                &id,
+                                            )
+                                            .await
+                                            {
+                                                app.error_message =
+                                                    Some(format!("Action failed: {}", e));
                                             }
                                             let _ = app.refresh_current().await;
                                             handled = true;
@@ -255,7 +268,9 @@ async fn handle_normal_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
                 // Handle 'gg' for go_to_top
                 if c == 'g' {
                     if let Some((last_key, last_time)) = app.last_key_press {
-                        if last_key == KeyCode::Char('g') && last_time.elapsed() < Duration::from_millis(250) {
+                        if last_key == KeyCode::Char('g')
+                            && last_time.elapsed() < Duration::from_millis(250)
+                        {
                             app.go_to_top();
                             app.last_key_press = None;
                             handled = true;
@@ -398,13 +413,21 @@ async fn handle_confirm_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
                 if pending.selected_yes {
                     // Execute the action (if not in readonly mode)
                     if app.readonly {
-                        app.error_message = Some("This operation is not supported in read-only mode".to_string());
+                        app.error_message =
+                            Some("This operation is not supported in read-only mode".to_string());
                     } else {
                         let service = pending.service.clone();
                         let method = pending.sdk_method.clone();
                         let resource_id = pending.resource_id.clone();
-                        
-                        if let Err(e) = crate::resource::execute_action(&service, &method, &app.clients, &resource_id).await {
+
+                        if let Err(e) = crate::resource::execute_action(
+                            &service,
+                            &method,
+                            &app.clients,
+                            &resource_id,
+                        )
+                        .await
+                        {
                             app.error_message = Some(format!("Action failed: {}", e));
                         }
                         // Refresh after action
@@ -417,13 +440,17 @@ async fn handle_confirm_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
         // Quick yes/no
         KeyCode::Char('y') | KeyCode::Char('Y') => {
             if app.readonly {
-                app.error_message = Some("This operation is not supported in read-only mode".to_string());
+                app.error_message =
+                    Some("This operation is not supported in read-only mode".to_string());
             } else if let Some(ref pending) = app.pending_action {
                 let service = pending.service.clone();
                 let method = pending.sdk_method.clone();
                 let resource_id = pending.resource_id.clone();
-                
-                if let Err(e) = crate::resource::execute_action(&service, &method, &app.clients, &resource_id).await {
+
+                if let Err(e) =
+                    crate::resource::execute_action(&service, &method, &app.clients, &resource_id)
+                        .await
+                {
                     app.error_message = Some(format!("Action failed: {}", e));
                 }
                 let _ = app.refresh_current().await;
@@ -498,7 +525,10 @@ async fn handle_sso_login_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
     };
 
     match sso_state {
-        SsoLoginState::Prompt { profile, sso_session: _ } => {
+        SsoLoginState::Prompt {
+            profile,
+            sso_session: _,
+        } => {
             match key.code {
                 KeyCode::Enter => {
                     // Get SSO config and start device authorization - run blocking on separate thread
@@ -508,16 +538,22 @@ async fn handle_sso_login_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
                             match sso::start_device_authorization(&config) {
                                 Ok(device_auth) => {
                                     // Open browser
-                                    let _ = sso::open_sso_browser(&device_auth.verification_uri_complete);
+                                    let _ = sso::open_sso_browser(
+                                        &device_auth.verification_uri_complete,
+                                    );
                                     Ok((profile_clone, device_auth, config.sso_region))
                                 }
                                 Err(e) => Err(format!("Failed to start SSO: {}", e)),
                             }
                         } else {
-                            Err(format!("SSO config not found for profile '{}'", profile_clone))
+                            Err(format!(
+                                "SSO config not found for profile '{}'",
+                                profile_clone
+                            ))
                         }
-                    }).await;
-                    
+                    })
+                    .await;
+
                     match result {
                         Ok(Ok((prof, device_auth, sso_region))) => {
                             app.sso_state = Some(SsoLoginState::WaitingForAuth {
@@ -533,8 +569,8 @@ async fn handle_sso_login_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
                             app.sso_state = Some(SsoLoginState::Failed { error: e });
                         }
                         Err(e) => {
-                            app.sso_state = Some(SsoLoginState::Failed { 
-                                error: format!("Task failed: {}", e) 
+                            app.sso_state = Some(SsoLoginState::Failed {
+                                error: format!("Task failed: {}", e),
                             });
                         }
                     }
@@ -547,7 +583,11 @@ async fn handle_sso_login_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
             }
         }
 
-        SsoLoginState::WaitingForAuth { profile, interval: _, .. } => {
+        SsoLoginState::WaitingForAuth {
+            profile,
+            interval: _,
+            ..
+        } => {
             match key.code {
                 KeyCode::Esc => {
                     app.sso_state = None;
@@ -566,8 +606,9 @@ async fn handle_sso_login_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
                         } else {
                             Ok(None)
                         }
-                    }).await;
-                    
+                    })
+                    .await;
+
                     match result {
                         Ok(Ok(Some(prof))) => {
                             app.sso_state = Some(SsoLoginState::Success { profile: prof });
@@ -579,8 +620,8 @@ async fn handle_sso_login_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
                             app.sso_state = Some(SsoLoginState::Failed { error: e });
                         }
                         Err(e) => {
-                            app.sso_state = Some(SsoLoginState::Failed { 
-                                error: format!("Task failed: {}", e) 
+                            app.sso_state = Some(SsoLoginState::Failed {
+                                error: format!("Task failed: {}", e),
                             });
                         }
                     }
@@ -606,15 +647,13 @@ async fn handle_sso_login_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
             }
         }
 
-        SsoLoginState::Failed { .. } => {
-            match key.code {
-                KeyCode::Enter | KeyCode::Esc => {
-                    app.sso_state = None;
-                    app.exit_mode();
-                }
-                _ => {}
+        SsoLoginState::Failed { .. } => match key.code {
+            KeyCode::Enter | KeyCode::Esc => {
+                app.sso_state = None;
+                app.exit_mode();
             }
-        }
+            _ => {}
+        },
     }
 
     Ok(false)
@@ -643,8 +682,9 @@ pub async fn poll_sso_if_waiting(app: &mut App) {
             } else {
                 Ok(None)
             }
-        }).await;
-        
+        })
+        .await;
+
         match result {
             Ok(Ok(Some(prof))) => {
                 app.sso_state = Some(SsoLoginState::Success { profile: prof });
@@ -656,8 +696,8 @@ pub async fn poll_sso_if_waiting(app: &mut App) {
                 app.sso_state = Some(SsoLoginState::Failed { error: e });
             }
             Err(e) => {
-                app.sso_state = Some(SsoLoginState::Failed { 
-                    error: format!("Task failed: {}", e) 
+                app.sso_state = Some(SsoLoginState::Failed {
+                    error: format!("Task failed: {}", e),
                 });
             }
         }

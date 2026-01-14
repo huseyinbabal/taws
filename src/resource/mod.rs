@@ -1,7 +1,7 @@
-mod registry;
 mod fetcher;
+mod registry;
 pub mod sdk_dispatch;
 
+pub use fetcher::{extract_json_value, fetch_resources, fetch_resources_paginated, ResourceFilter};
 pub use registry::*;
-pub use fetcher::{fetch_resources, fetch_resources_paginated, extract_json_value, ResourceFilter};
-pub use sdk_dispatch::{execute_action, describe_resource, invoke_sdk, format_log_timestamp};
+pub use sdk_dispatch::{describe_resource, execute_action, format_log_timestamp, invoke_sdk};
