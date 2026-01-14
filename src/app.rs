@@ -1,27 +1,27 @@
 use crate::aws;
 use crate::aws::client::AwsClients;
 use crate::config::Config;
-use crossterm::event::KeyCode;
 use crate::resource::{
-    get_resource, get_all_resource_keys, ResourceDef, ResourceFilter, 
-    fetch_resources_paginated, extract_json_value,
+    extract_json_value, fetch_resources_paginated, get_all_resource_keys, get_resource,
+    ResourceDef, ResourceFilter,
 };
 use anyhow::Result;
-use fuzzy_matcher::{FuzzyMatcher, skim::SkimMatcherV2};
+use crossterm::event::KeyCode;
+use fuzzy_matcher::{skim::SkimMatcherV2, FuzzyMatcher};
 use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
-    Normal,      // Viewing list
-    Command,     // : command input
-    Help,        // ? help popup
-    Confirm,     // Confirmation dialog
-    Warning,     // Warning/info dialog (OK only)
-    Profiles,    // Profile selection
-    Regions,     // Region selection
-    Describe,    // Viewing JSON details of selected item
-    SsoLogin,    // SSO login dialog
-    LogTail,     // Tailing CloudWatch logs
+    Normal,   // Viewing list
+    Command,  // : command input
+    Help,     // ? help popup
+    Confirm,  // Confirmation dialog
+    Warning,  // Warning/info dialog (OK only)
+    Profiles, // Profile selection
+    Regions,  // Region selection
+    Describe, // Viewing JSON details of selected item
+    SsoLogin, // SSO login dialog
+    LogTail,  // Tailing CloudWatch logs
 }
 
 /// Pending action that requires confirmation
@@ -58,30 +58,30 @@ pub struct ParentContext {
 pub struct App {
     // AWS Clients
     pub clients: AwsClients,
-    
+
     // Current resource being viewed
     pub current_resource_key: String,
-    
+
     // Dynamic data storage (JSON)
     pub items: Vec<Value>,
     pub filtered_items: Vec<Value>,
-    
+
     // Navigation state
     pub selected: usize,
     pub mode: Mode,
     pub filter_text: String,
     pub filter_active: bool,
-    
+
     // Hierarchical navigation
     pub parent_context: Option<ParentContext>,
     pub navigation_stack: Vec<ParentContext>,
-    
+
     // Command input
     pub command_text: String,
     pub command_suggestions: Vec<String>,
     pub command_suggestion_selected: usize,
     pub command_preview: Option<String>, // Ghost text for hovered suggestion
-    
+
     // Profile/Region
     pub profile: String,
     pub region: String,
@@ -89,43 +89,43 @@ pub struct App {
     pub available_regions: Vec<String>,
     pub profiles_selected: usize,
     pub regions_selected: usize,
-    
+
     // Confirmation
     pub pending_action: Option<PendingAction>,
-    
+
     // UI state
     pub loading: bool,
     pub error_message: Option<String>,
     pub describe_scroll: usize,
-    pub describe_data: Option<Value>,  // Full resource details from describe API
-    
+    pub describe_data: Option<Value>, // Full resource details from describe API
+
     // Auto-refresh
     pub last_refresh: std::time::Instant,
-    
+
     // Persistent configuration
     pub config: Config,
-    
+
     // Key press tracking for sequences (e.g., 'gg')
     pub last_key_press: Option<(KeyCode, std::time::Instant)>,
-    
+
     // Read-only mode (blocks all write operations)
     pub readonly: bool,
-    
+
     // Warning message for modal dialog
     pub warning_message: Option<String>,
-    
+
     // Custom endpoint URL (for LocalStack, etc.)
     pub endpoint_url: Option<String>,
-    
+
     // SSO login state
     pub sso_state: Option<SsoLoginState>,
-    
+
     // Pagination state
     pub pagination: PaginationState,
-    
+
     // Log tail state
     pub log_tail_state: Option<LogTailState>,
-    
+
     // Fuzzy matcher for filtering (reused to avoid repeated allocations)
     pub fuzzy_matcher: SkimMatcherV2,
 }
@@ -175,13 +175,9 @@ pub enum SsoLoginState {
         sso_region: String,
     },
     /// Login succeeded - contains profile to switch to
-    Success {
-        profile: String,
-    },
+    Success { profile: String },
     /// Login failed
-    Failed {
-        error: String,
-    },
+    Failed { error: String },
 }
 
 /// Result of profile switch attempt
@@ -190,7 +186,10 @@ pub enum ProfileSwitchResult {
     /// Profile switched successfully
     Success,
     /// SSO login required for this profile
-    SsoRequired { profile: String, sso_session: String },
+    SsoRequired {
+        profile: String,
+        sso_session: String,
+    },
 }
 
 /// A single log event from CloudWatch
@@ -238,7 +237,7 @@ impl App {
         endpoint_url: Option<String>,
     ) -> Self {
         let filtered_items = initial_items.clone();
-        
+
         Self {
             clients,
             current_resource_key: "ec2-instances".to_string(),
@@ -277,13 +276,13 @@ impl App {
             fuzzy_matcher: SkimMatcherV2::default().ignore_case(),
         }
     }
-    
+
     /// Check if auto-refresh is needed
     /// Auto-refresh is disabled - use 'R' to manually refresh
     pub fn needs_refresh(&self) -> bool {
         false
     }
-    
+
     /// Reset refresh timer
     pub fn mark_refreshed(&mut self) {
         self.last_refresh = std::time::Instant::now();
@@ -304,11 +303,11 @@ impl App {
             .iter()
             .map(|s| s.to_string())
             .collect();
-        
+
         // Add profiles and regions commands
         commands.push("profiles".to_string());
         commands.push("regions".to_string());
-        
+
         commands.sort();
         commands
     }
@@ -322,7 +321,7 @@ impl App {
         // Fetch the current page (uses pagination.next_token if set by next_page/prev_page)
         self.fetch_page(self.pagination.next_token.clone()).await
     }
-    
+
     /// Fetch a specific page of resources
     async fn fetch_page(&mut self, page_token: Option<String>) -> Result<()> {
         if self.current_resource().is_none() {
@@ -335,24 +334,26 @@ impl App {
 
         // Build filters from parent context
         let filters = self.build_filters_from_context();
-        
+
         // Use paginated fetch - returns only one page of results
         match fetch_resources_paginated(
-            &self.current_resource_key, 
-            &self.clients, 
+            &self.current_resource_key,
+            &self.clients,
             &filters,
             page_token.as_deref(),
-        ).await {
+        )
+        .await
+        {
             Ok(result) => {
                 // Preserve selection if possible
                 let prev_selected = self.selected;
                 self.items = result.items;
                 self.apply_filter();
-                
+
                 // Update pagination state
                 self.pagination.has_more = result.next_token.is_some();
                 self.pagination.next_token = result.next_token;
-                
+
                 // Try to keep the same selection index
                 if prev_selected < self.filtered_items.len() {
                     self.selected = prev_selected;
@@ -369,42 +370,42 @@ impl App {
                 self.pagination = PaginationState::default();
             }
         }
-        
+
         self.loading = false;
         self.mark_refreshed();
         Ok(())
     }
-    
+
     /// Fetch next page of resources
     pub async fn next_page(&mut self) -> Result<()> {
         if !self.pagination.has_more {
             return Ok(());
         }
-        
+
         // Save current token to stack for going back
         let current_token = self.pagination.next_token.clone();
         self.pagination.token_stack.push(current_token.clone());
         self.pagination.current_page += 1;
-        
+
         // Fetch next page
         self.fetch_page(current_token).await
     }
-    
+
     /// Fetch previous page of resources
     pub async fn prev_page(&mut self) -> Result<()> {
         if self.pagination.current_page <= 1 {
             return Ok(());
         }
-        
+
         // Pop the previous token from stack
         self.pagination.token_stack.pop(); // Remove current page's token
         let prev_token = self.pagination.token_stack.pop().flatten(); // Get previous page's token
         self.pagination.current_page -= 1;
-        
+
         // Fetch previous page
         self.fetch_page(prev_token).await
     }
-    
+
     /// Reset pagination state (call when navigating to new resource)
     pub fn reset_pagination(&mut self) {
         self.pagination = PaginationState::default();
@@ -416,13 +417,13 @@ impl App {
         let Some(parent) = &self.parent_context else {
             return Vec::new();
         };
-        
+
         let Some(_resource) = self.current_resource() else {
             return Vec::new();
         };
-        
+
         let mut filters = Vec::new();
-        
+
         // For S3 objects, we need to collect filters from entire navigation stack
         // to preserve bucket_names while adding prefix
         if self.current_resource_key == "s3-objects" {
@@ -432,37 +433,47 @@ impl App {
                     if let Some(parent_resource) = get_resource(&ctx.resource_key) {
                         for sub in &parent_resource.sub_resources {
                             if sub.resource_key == "s3-objects" {
-                                let bucket_name = extract_json_value(&ctx.item, &sub.parent_id_field);
+                                let bucket_name =
+                                    extract_json_value(&ctx.item, &sub.parent_id_field);
                                 if bucket_name != "-" {
-                                    filters.push(ResourceFilter::new(&sub.filter_param, vec![bucket_name]));
+                                    filters.push(ResourceFilter::new(
+                                        &sub.filter_param,
+                                        vec![bucket_name],
+                                    ));
                                 }
                             }
                         }
                     }
                 }
             }
-            
+
             // If parent is s3-buckets, get bucket_names from it
             if parent.resource_key == "s3-buckets" {
                 if let Some(parent_resource) = get_resource(&parent.resource_key) {
                     for sub in &parent_resource.sub_resources {
                         if sub.resource_key == "s3-objects" {
-                            let bucket_name = extract_json_value(&parent.item, &sub.parent_id_field);
+                            let bucket_name =
+                                extract_json_value(&parent.item, &sub.parent_id_field);
                             if bucket_name != "-" {
-                                filters.push(ResourceFilter::new(&sub.filter_param, vec![bucket_name]));
+                                filters.push(ResourceFilter::new(
+                                    &sub.filter_param,
+                                    vec![bucket_name],
+                                ));
                             }
                         }
                     }
                 }
             }
-            
+
             // If parent is s3-objects (folder navigation), get prefix from it
             if parent.resource_key == "s3-objects" {
                 // Check if selected item is a folder
-                let is_folder = parent.item.get("IsFolder")
+                let is_folder = parent
+                    .item
+                    .get("IsFolder")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
-                
+
                 if is_folder {
                     let prefix = extract_json_value(&parent.item, "Key");
                     if prefix != "-" {
@@ -470,10 +481,10 @@ impl App {
                     }
                 }
             }
-            
+
             return filters;
         }
-        
+
         // Default behavior for other resources
         if let Some(parent_resource) = get_resource(&parent.resource_key) {
             for sub in &parent_resource.sub_resources {
@@ -486,7 +497,7 @@ impl App {
                 }
             }
         }
-        
+
         Vec::new()
     }
 
@@ -495,6 +506,7 @@ impl App {
     // =========================================================================
 
     /// Apply text filter to items
+    /// Searches across all visible column values (name, id, and all other attributes)
     pub fn apply_filter(&mut self) {
         let query = self.filter_text.trim();
 
@@ -502,26 +514,34 @@ impl App {
             self.filtered_items = self.items.clone();
         } else {
             let resource = self.current_resource();
-            
+
             // Collect items with their match scores
             let mut scored_items: Vec<(i64, Value)> = self
                 .items
                 .iter()
                 .filter_map(|item| {
                     if let Some(res) = resource {
+                        // Search across all column values (visible attributes)
+                        let mut best_score: Option<i64> = None;
+
+                        for col in &res.columns {
+                            let value = extract_json_value(item, &col.json_path);
+                            if let Some(score) = self.fuzzy_matcher.fuzzy_match(&value, query) {
+                                best_score = Some(best_score.map_or(score, |s| s.max(score)));
+                            }
+                        }
+
+                        // Also search name_field and id_field if not already in columns
                         let name = extract_json_value(item, &res.name_field);
+                        if let Some(score) = self.fuzzy_matcher.fuzzy_match(&name, query) {
+                            best_score = Some(best_score.map_or(score, |s| s.max(score)));
+                        }
+
                         let id = extract_json_value(item, &res.id_field);
-                        let name_score = self.fuzzy_matcher.fuzzy_match(&name, query);
-                        let id_score = self.fuzzy_matcher.fuzzy_match(&id, query);
-                        
-                        // Take the best score from name or id
-                        let best_score = match (name_score, id_score) {
-                            (Some(n), Some(i)) => Some(n.max(i)),
-                            (Some(n), None) => Some(n),
-                            (None, Some(i)) => Some(i),
-                            (None, None) => None,
-                        };
-                        
+                        if let Some(score) = self.fuzzy_matcher.fuzzy_match(&id, query) {
+                            best_score = Some(best_score.map_or(score, |s| s.max(score)));
+                        }
+
                         best_score.map(|score| (score, item.clone()))
                     } else {
                         // Fallback: search in JSON string
@@ -531,10 +551,10 @@ impl App {
                     }
                 })
                 .collect();
-            
+
             // Sort by score descending (higher score = better match)
             scored_items.sort_by(|a, b| b.0.cmp(&a.0));
-            
+
             // Extract just the items
             self.filtered_items = scored_items.into_iter().map(|(_, item)| item).collect();
         }
@@ -602,12 +622,14 @@ impl App {
         match self.mode {
             Mode::Profiles => {
                 if !self.available_profiles.is_empty() {
-                    self.profiles_selected = (self.profiles_selected + 1).min(self.available_profiles.len() - 1);
+                    self.profiles_selected =
+                        (self.profiles_selected + 1).min(self.available_profiles.len() - 1);
                 }
             }
             Mode::Regions => {
                 if !self.available_regions.is_empty() {
-                    self.regions_selected = (self.regions_selected + 1).min(self.available_regions.len() - 1);
+                    self.regions_selected =
+                        (self.regions_selected + 1).min(self.available_regions.len() - 1);
                 }
             }
             _ => {
@@ -664,12 +686,14 @@ impl App {
         match self.mode {
             Mode::Profiles => {
                 if !self.available_profiles.is_empty() {
-                    self.profiles_selected = (self.profiles_selected + page_size).min(self.available_profiles.len() - 1);
+                    self.profiles_selected =
+                        (self.profiles_selected + page_size).min(self.available_profiles.len() - 1);
                 }
             }
             Mode::Regions => {
                 if !self.available_regions.is_empty() {
-                    self.regions_selected = (self.regions_selected + page_size).min(self.available_regions.len() - 1);
+                    self.regions_selected =
+                        (self.regions_selected + page_size).min(self.available_regions.len() - 1);
                 }
             }
             _ => {
@@ -709,7 +733,7 @@ impl App {
     pub fn update_command_suggestions(&mut self) {
         let input = self.command_text.to_lowercase();
         let all_commands = self.get_available_commands();
-        
+
         if input.is_empty() {
             self.command_suggestions = all_commands;
         } else {
@@ -718,20 +742,21 @@ impl App {
                 .filter(|cmd| cmd.contains(&input))
                 .collect();
         }
-        
+
         if self.command_suggestion_selected >= self.command_suggestions.len() {
             self.command_suggestion_selected = 0;
         }
-        
+
         // Update preview to show current selection
         self.update_preview();
     }
-    
+
     fn update_preview(&mut self) {
         if self.command_suggestions.is_empty() {
             self.command_preview = None;
         } else {
-            self.command_preview = self.command_suggestions
+            self.command_preview = self
+                .command_suggestions
                 .get(self.command_suggestion_selected)
                 .cloned();
         }
@@ -739,7 +764,7 @@ impl App {
 
     pub fn next_suggestion(&mut self) {
         if !self.command_suggestions.is_empty() {
-            self.command_suggestion_selected = 
+            self.command_suggestion_selected =
                 (self.command_suggestion_selected + 1) % self.command_suggestions.len();
             // Update preview (ghost text) without changing command_text
             self.update_preview();
@@ -774,11 +799,11 @@ impl App {
         if self.filtered_items.is_empty() {
             return;
         }
-        
+
         self.mode = Mode::Describe;
         self.describe_scroll = 0;
         self.describe_data = None;
-        
+
         // Get the selected item's ID
         if let Some(item) = self.selected_item().cloned() {
             if let Some(resource_def) = self.current_resource() {
@@ -794,19 +819,25 @@ impl App {
                             }
                         }
                     }
-                    
+
                     // Call the detail SDK method
                     match crate::resource::invoke_sdk(
                         &resource_def.service,
                         detail_method,
                         &self.clients,
                         &serde_json::Value::Object(params),
-                    ).await {
+                    )
+                    .await
+                    {
                         Ok(data) => {
                             self.describe_data = Some(data);
                         }
                         Err(e) => {
-                            tracing::warn!("Failed to fetch detail data via {}: {}", detail_method, e);
+                            tracing::warn!(
+                                "Failed to fetch detail data via {}: {}",
+                                detail_method,
+                                e
+                            );
                             self.describe_data = Some(item);
                         }
                     }
@@ -818,7 +849,9 @@ impl App {
                             &self.current_resource_key,
                             &self.clients,
                             &id,
-                        ).await {
+                        )
+                        .await
+                        {
                             Ok(data) => {
                                 self.describe_data = Some(data);
                             }
@@ -838,13 +871,13 @@ impl App {
         self.pending_action = Some(pending);
         self.mode = Mode::Confirm;
     }
-    
+
     /// Show a warning modal with OK button
     pub fn show_warning(&mut self, message: &str) {
         self.warning_message = Some(message.to_string());
         self.mode = Mode::Warning;
     }
-    
+
     /// Enter SSO login mode to prompt for browser authentication
     pub fn enter_sso_login_mode(&mut self, profile: &str, sso_session: &str) {
         self.sso_state = Some(SsoLoginState::Prompt {
@@ -853,11 +886,16 @@ impl App {
         });
         self.mode = Mode::SsoLogin;
     }
-    
+
     /// Create a pending action from an ActionDef
-    pub fn create_pending_action(&self, action: &crate::resource::ActionDef, resource_id: &str) -> Option<PendingAction> {
+    pub fn create_pending_action(
+        &self,
+        action: &crate::resource::ActionDef,
+        resource_id: &str,
+    ) -> Option<PendingAction> {
         let config = action.get_confirm_config()?;
-        let resource_name = self.selected_item()
+        let resource_name = self
+            .selected_item()
             .and_then(|item| {
                 if let Some(resource_def) = self.current_resource() {
                     let name = crate::resource::extract_json_value(item, &resource_def.name_field);
@@ -868,10 +906,12 @@ impl App {
                 None
             })
             .unwrap_or_else(|| resource_id.to_string());
-        
-        let message = config.message.unwrap_or_else(|| action.display_name.clone());
+
+        let message = config
+            .message
+            .unwrap_or_else(|| action.display_name.clone());
         let default_no = !config.default_yes;
-        
+
         Some(PendingAction {
             service: self.current_resource()?.service.clone(),
             sdk_method: action.sdk_method.clone(),
@@ -904,7 +944,7 @@ impl App {
     pub fn exit_mode(&mut self) {
         self.mode = Mode::Normal;
         self.pending_action = None;
-        self.describe_data = None;  // Clear describe data when exiting
+        self.describe_data = None; // Clear describe data when exiting
     }
 
     // =========================================================================
@@ -917,7 +957,7 @@ impl App {
             self.error_message = Some(format!("Unknown resource: {}", resource_key));
             return Ok(());
         }
-        
+
         // Clear parent context when navigating to top-level resource
         self.parent_context = None;
         self.navigation_stack.clear();
@@ -926,10 +966,10 @@ impl App {
         self.filter_text.clear();
         self.filter_active = false;
         self.mode = Mode::Normal;
-        
+
         // Reset pagination for new resource
         self.reset_pagination();
-        
+
         self.refresh_current().await?;
         Ok(())
     }
@@ -939,17 +979,17 @@ impl App {
         let Some(selected_item) = self.selected_item().cloned() else {
             return Ok(());
         };
-        
+
         let Some(current_resource) = self.current_resource() else {
             return Ok(());
         };
-        
+
         // Verify this is a valid sub-resource
         let is_valid = current_resource
             .sub_resources
             .iter()
             .any(|s| s.resource_key == sub_resource_key);
-        
+
         if !is_valid {
             self.error_message = Some(format!(
                 "{} is not a sub-resource of {}",
@@ -957,46 +997,51 @@ impl App {
             ));
             return Ok(());
         }
-        
+
         // Special handling for S3 folder navigation
         // Only allow navigating into folders, not files
         if self.current_resource_key == "s3-objects" && sub_resource_key == "s3-objects" {
-            let is_folder = selected_item.get("IsFolder")
+            let is_folder = selected_item
+                .get("IsFolder")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
-            
+
             if !is_folder {
                 // Don't navigate into files - could show a message or do nothing
                 return Ok(());
             }
         }
-        
+
         // Get display name for parent
         let display_name = extract_json_value(&selected_item, &current_resource.name_field);
         let id = extract_json_value(&selected_item, &current_resource.id_field);
-        let display = if display_name != "-" { display_name } else { id };
-        
+        let display = if display_name != "-" {
+            display_name
+        } else {
+            id
+        };
+
         // Push current context to stack
         if let Some(ctx) = self.parent_context.take() {
             self.navigation_stack.push(ctx);
         }
-        
+
         // Set new parent context
         self.parent_context = Some(ParentContext {
             resource_key: self.current_resource_key.clone(),
             item: selected_item,
             display_name: display,
         });
-        
+
         // Navigate
         self.current_resource_key = sub_resource_key.to_string();
         self.selected = 0;
         self.filter_text.clear();
         self.filter_active = false;
-        
+
         // Reset pagination for new resource
         self.reset_pagination();
-        
+
         self.refresh_current().await?;
         Ok(())
     }
@@ -1006,16 +1051,16 @@ impl App {
         if let Some(parent) = self.parent_context.take() {
             // Pop from navigation stack if available
             self.parent_context = self.navigation_stack.pop();
-            
+
             // Navigate to parent resource
             self.current_resource_key = parent.resource_key;
             self.selected = 0;
             self.filter_text.clear();
             self.filter_active = false;
-            
+
             // Reset pagination for parent resource
             self.reset_pagination();
-            
+
             self.refresh_current().await?;
         }
         Ok(())
@@ -1024,15 +1069,15 @@ impl App {
     /// Get breadcrumb path
     pub fn get_breadcrumb(&self) -> Vec<String> {
         let mut path = Vec::new();
-        
+
         for ctx in &self.navigation_stack {
             path.push(format!("{}:{}", ctx.resource_key, ctx.display_name));
         }
-        
+
         if let Some(ctx) = &self.parent_context {
             path.push(format!("{}:{}", ctx.resource_key, ctx.display_name));
         }
-        
+
         path.push(self.current_resource_key.clone());
         path
     }
@@ -1046,21 +1091,22 @@ impl App {
     pub async fn switch_region(&mut self, region: &str) -> Result<()> {
         let actual_region = self.clients.switch_region(&self.profile, region).await?;
         self.region = actual_region.clone();
-        
+
         // Save to config (log errors but don't fail region switch)
         if let Err(e) = self.config.set_region(&actual_region) {
             tracing::warn!("Failed to save region to config: {}", e);
         }
-        
+
         Ok(())
     }
 
     pub async fn switch_profile(&mut self, profile: &str) -> Result<()> {
-        let (new_clients, actual_region) = AwsClients::new(profile, &self.region, self.endpoint_url.clone()).await?;
+        let (new_clients, actual_region) =
+            AwsClients::new(profile, &self.region, self.endpoint_url.clone()).await?;
         self.clients = new_clients;
         self.profile = profile.to_string();
         self.region = actual_region.clone();
-        
+
         // Save to config (log errors but don't fail profile switch)
         if let Err(e) = self.config.set_profile(profile) {
             tracing::warn!("Failed to save profile to config: {}", e);
@@ -1068,20 +1114,25 @@ impl App {
         if let Err(e) = self.config.set_region(&actual_region) {
             tracing::warn!("Failed to save region to config: {}", e);
         }
-        
+
         Ok(())
     }
-    
+
     /// Switch profile with SSO check - returns SsoRequired if SSO login is needed
-    pub async fn switch_profile_with_sso_check(&mut self, profile: &str) -> Result<ProfileSwitchResult> {
+    pub async fn switch_profile_with_sso_check(
+        &mut self,
+        profile: &str,
+    ) -> Result<ProfileSwitchResult> {
         use crate::aws::client::ClientResult;
-        
-        match AwsClients::new_with_sso_check(profile, &self.region, self.endpoint_url.clone()).await? {
+
+        match AwsClients::new_with_sso_check(profile, &self.region, self.endpoint_url.clone())
+            .await?
+        {
             ClientResult::Ok(new_clients, actual_region) => {
                 self.clients = new_clients;
                 self.profile = profile.to_string();
                 self.region = actual_region.clone();
-                
+
                 // Save to config (log errors but don't fail profile switch)
                 if let Err(e) = self.config.set_profile(profile) {
                     tracing::warn!("Failed to save profile to config: {}", e);
@@ -1089,12 +1140,17 @@ impl App {
                 if let Err(e) = self.config.set_region(&actual_region) {
                     tracing::warn!("Failed to save region to config: {}", e);
                 }
-                
+
                 Ok(ProfileSwitchResult::Success)
             }
-            ClientResult::SsoLoginRequired { profile, sso_session, .. } => {
-                Ok(ProfileSwitchResult::SsoRequired { profile, sso_session })
-            }
+            ClientResult::SsoLoginRequired {
+                profile,
+                sso_session,
+                ..
+            } => Ok(ProfileSwitchResult::SsoRequired {
+                profile,
+                sso_session,
+            }),
         }
     }
 
@@ -1108,7 +1164,10 @@ impl App {
                     self.exit_mode();
                     Ok(false)
                 }
-                ProfileSwitchResult::SsoRequired { profile, sso_session } => {
+                ProfileSwitchResult::SsoRequired {
+                    profile,
+                    sso_session,
+                } => {
                     // Enter SSO login mode
                     self.enter_sso_login_mode(&profile, &sso_session);
                     Ok(true)
@@ -1148,9 +1207,9 @@ impl App {
         } else {
             self.command_text.clone()
         };
-        
+
         let parts: Vec<&str> = command_text.split_whitespace().collect();
-        
+
         if parts.is_empty() {
             return Ok(false);
         }
@@ -1266,19 +1325,26 @@ impl App {
             "get_log_events",
             &self.clients,
             &params,
-        ).await {
+        )
+        .await
+        {
             Ok(response) => {
                 state.error = None;
-                
+
                 // Extract events
                 if let Some(events) = response.get("events").and_then(|v| v.as_array()) {
                     for event in events {
-                        let timestamp = event.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
-                        let message = event.get("message").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                        
+                        let timestamp =
+                            event.get("timestamp").and_then(|v| v.as_i64()).unwrap_or(0);
+                        let message = event
+                            .get("message")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+
                         state.events.push(LogEvent { timestamp, message });
                     }
-                    
+
                     // Keep only last 1000 events
                     if state.events.len() > 1000 {
                         let drain_count = state.events.len() - 1000;
