@@ -1085,7 +1085,7 @@ mod tests {
         let err = client.get_endpoint(&service).expect_err("cloudfront should error in esc");
         assert_eq!(
             err.to_string(),
-            "Service 'cloudfront' is not available yet in ESC regions"
+            "Service 'cloudfront' is not available in ESC regions yet"
         );
     }
 
