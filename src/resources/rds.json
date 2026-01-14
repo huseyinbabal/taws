@@ -20,7 +20,7 @@
         { "shortcut": "n", "display_name": "Snapshots", "resource_key": "rds-snapshots", "parent_id_field": "DBInstanceIdentifier", "filter_param": "db_instance_identifier" }
       ],
       "actions": [
-        { "key": "s", "display_name": "Start", "shortcut": "s", "sdk_method": "start_db_instance" },
+        { "key": "s", "display_name": "Start", "shortcut": "s", "sdk_method": "start_db_instance", "confirm": { "message": "Start RDS instance", "default_yes": false } },
         { "key": "S", "display_name": "Stop", "shortcut": "S", "sdk_method": "stop_db_instance", "confirm": { "message": "Stop RDS instance", "default_yes": false } },
         { "key": "r", "display_name": "Reboot", "shortcut": "r", "sdk_method": "reboot_db_instance", "confirm": { "message": "Reboot RDS instance", "default_yes": false } },
         { "key": "ctrl+d", "display_name": "Delete", "shortcut": "ctrl+d", "sdk_method": "delete_db_instance", "confirm": { "message": "Delete RDS instance", "default_yes": false, "destructive": true } }
