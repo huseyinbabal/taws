@@ -3,17 +3,14 @@
     "ecs-clusters": {
       "display_name": "ECS Clusters",
       "service": "ecs",
-      "sdk_method": "list_clusters_with_details",
+      "sdk_method": "list_clusters",
       "sdk_method_params": {},
       "response_path": "clusters",
       "id_field": "clusterArn",
-      "name_field": "clusterName",
+      "name_field": "clusterArn",
       "is_global": false,
       "columns": [
-        { "header": "CLUSTER NAME", "json_path": "clusterName", "width": 25 },
-        { "header": "STATUS", "json_path": "status", "width": 10, "color_map": "state" },
-        { "header": "RUNNING TASKS", "json_path": "runningTasksCount", "width": 15 },
-        { "header": "INSTANCES", "json_path": "registeredContainerInstancesCount", "width": 12 }
+        { "header": "CLUSTER ARN", "json_path": "clusterArn", "width": 80 }
       ],
       "sub_resources": [
         { "shortcut": "s", "display_name": "Services", "resource_key": "ecs-services", "parent_id_field": "clusterArn", "filter_param": "cluster" },
@@ -21,47 +18,89 @@
       ],
       "actions": [
         { "key": "ctrl+d", "display_name": "Delete Cluster", "shortcut": "ctrl+d", "sdk_method": "delete_cluster", "confirm": { "message": "Delete ECS cluster", "default_yes": false, "destructive": true } }
-      ]
+      ],
+      "api_config": {
+        "protocol": "json",
+        "action": "ListClusters",
+        "response_root": "/clusterArns",
+        "pagination": {
+          "input_token": "nextToken",
+          "output_token": "/nextToken",
+          "max_results_param": "maxResults",
+          "max_results": 100
+        }
+      },
+      "field_mappings": {
+        "clusterArn": { "source": "", "default": "-" }
+      }
     },
     "ecs-services": {
       "display_name": "ECS Services",
       "service": "ecs",
-      "sdk_method": "list_services_with_details",
+      "sdk_method": "list_services",
       "sdk_method_params": {},
       "response_path": "services",
       "id_field": "serviceArn",
-      "name_field": "serviceName",
+      "name_field": "serviceArn",
       "is_global": false,
       "columns": [
-        { "header": "SERVICE NAME", "json_path": "serviceName", "width": 50 }
+        { "header": "SERVICE ARN", "json_path": "serviceArn", "width": 80 }
       ],
-      "detail_sdk_method": "describe_service",
-      "detail_sdk_method_params": { "service": "serviceArn", "cluster": "clusterArn" },
       "sub_resources": [],
       "actions": [
         { "key": "ctrl+d", "display_name": "Delete Service", "shortcut": "ctrl+d", "sdk_method": "delete_service", "confirm": { "message": "Delete ECS service", "default_yes": false, "destructive": true } }
-      ]
+      ],
+      "api_config": {
+        "protocol": "json",
+        "action": "ListServices",
+        "response_root": "/serviceArns",
+        "param_mapping": {
+          "cluster": "cluster"
+        },
+        "pagination": {
+          "input_token": "nextToken",
+          "output_token": "/nextToken",
+          "max_results_param": "maxResults",
+          "max_results": 100
+        }
+      },
+      "field_mappings": {
+        "serviceArn": { "source": "", "default": "-" }
+      }
     },
     "ecs-tasks": {
       "display_name": "ECS Tasks",
       "service": "ecs",
-      "sdk_method": "list_tasks_with_details",
+      "sdk_method": "list_tasks",
       "sdk_method_params": {},
       "response_path": "tasks",
       "id_field": "taskArn",
       "name_field": "taskArn",
       "is_global": false,
       "columns": [
-        { "header": "TASK ID", "json_path": "taskArn", "width": 45 },
-        { "header": "STATUS", "json_path": "lastStatus", "width": 12, "color_map": "state" },
-        { "header": "DESIRED STATUS", "json_path": "desiredStatus", "width": 15 },
-        { "header": "CPU", "json_path": "cpu", "width": 8 },
-        { "header": "MEMORY", "json_path": "memory", "width": 10 }
+        { "header": "TASK ARN", "json_path": "taskArn", "width": 80 }
       ],
       "sub_resources": [],
       "actions": [
         { "key": "S", "display_name": "Stop Task", "shortcut": "S", "sdk_method": "stop_task", "confirm": { "message": "Stop ECS task", "default_yes": false } }
-      ]
+      ],
+      "api_config": {
+        "protocol": "json",
+        "action": "ListTasks",
+        "response_root": "/taskArns",
+        "param_mapping": {
+          "cluster": "cluster"
+        },
+        "pagination": {
+          "input_token": "nextToken",
+          "output_token": "/nextToken",
+          "max_results_param": "maxResults",
+          "max_results": 100
+        }
+      },
+      "field_mappings": {
+        "taskArn": { "source": "", "default": "-" }
+      }
     }
   }
 }
