@@ -423,10 +423,10 @@ impl AwsHttpClient {
             };
         }
 
-        format!(
+        Ok(format!(
             "https://{}.{}.{}",
             service.endpoint_prefix, region, domain
-        )
+        ))
     }
 
     /// Determine the endpoint domain for a region (standard vs. sovereign)
