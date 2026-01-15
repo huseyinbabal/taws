@@ -28,6 +28,35 @@
       "field_mappings": {
         "Name": { "source": "/Name", "default": "-" },
         "CreationDate": { "source": "/CreationDate", "default": "-" }
+      },
+      "action_configs": {
+        "delete_bucket": {
+          "action_id": "delete_bucket",
+          "protocol": "rest-xml",
+          "method": "DELETE",
+          "path": "/{resource_id}"
+        }
+      },
+      "describe_config": {
+        "protocol": "rest-xml",
+        "method": "GET",
+        "path": "/{resource_id}",
+        "enrich_calls": [
+          {
+            "path": "/{resource_id}?versioning",
+            "method": "GET",
+            "result_field": "Versioning",
+            "extract_path": "/VersioningConfiguration/Status",
+            "default_value": "Disabled"
+          },
+          {
+            "path": "/{resource_id}?encryption",
+            "method": "GET",
+            "result_field": "Encryption",
+            "extract_path": "/ServerSideEncryptionConfiguration/Rule",
+            "default_value": "None"
+          }
+        ]
       }
     },
     "s3-objects": {

@@ -29,6 +29,12 @@
       "field_mappings": {
         "KeyId": { "source": "/KeyId", "default": "-" },
         "KeyArn": { "source": "/KeyArn", "default": "-" }
+      },
+      "describe_config": {
+        "protocol": "json",
+        "action": "DescribeKey",
+        "body_template": "{\"KeyId\": \"{resource_id}\"}",
+        "response_path": "/KeyMetadata"
       }
     }
   }

@@ -24,6 +24,20 @@
       },
       "field_mappings": {
         "TableName": { "source": "" }
+      },
+      "action_configs": {
+        "delete_table": {
+          "action_id": "delete_table",
+          "protocol": "json",
+          "action": "DeleteTable",
+          "body_template": "{\"TableName\": \"{resource_id}\"}"
+        }
+      },
+      "describe_config": {
+        "protocol": "json",
+        "action": "DescribeTable",
+        "body_template": "{\"TableName\": \"{resource_id}\"}",
+        "response_path": "/Table"
       }
     }
   }

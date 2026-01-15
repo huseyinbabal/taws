@@ -39,6 +39,38 @@
         "PrivateIpAddress": { "source": "/privateIpAddress", "default": "-" },
         "LaunchTime": { "source": "/launchTime", "default": "-" },
         "Tags": { "source": "/tagSet/item", "transform": "tags_to_map" }
+      },
+      "action_configs": {
+        "start_instance": {
+          "action_id": "start_instance",
+          "protocol": "query",
+          "action": "StartInstances",
+          "id_param": "InstanceId.1"
+        },
+        "stop_instance": {
+          "action_id": "stop_instance",
+          "protocol": "query",
+          "action": "StopInstances",
+          "id_param": "InstanceId.1"
+        },
+        "reboot_instance": {
+          "action_id": "reboot_instance",
+          "protocol": "query",
+          "action": "RebootInstances",
+          "id_param": "InstanceId.1"
+        },
+        "terminate_instance": {
+          "action_id": "terminate_instance",
+          "protocol": "query",
+          "action": "TerminateInstances",
+          "id_param": "InstanceId.1"
+        }
+      },
+      "describe_config": {
+        "protocol": "query",
+        "action": "DescribeInstances",
+        "id_param": "InstanceId.1",
+        "response_path": "/DescribeInstancesResponse/reservationSet/item/instancesSet/item"
       }
     }
   }

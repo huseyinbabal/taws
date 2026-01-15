@@ -32,6 +32,20 @@
       },
       "field_mappings": {
         "clusterArn": { "source": "", "default": "-" }
+      },
+      "action_configs": {
+        "delete_cluster": {
+          "action_id": "delete_cluster",
+          "protocol": "json",
+          "action": "DeleteCluster",
+          "body_template": "{\"cluster\": \"{resource_id}\"}"
+        }
+      },
+      "describe_config": {
+        "protocol": "json",
+        "action": "DescribeClusters",
+        "body_template": "{\"clusters\": [\"{resource_id}\"]}",
+        "response_path": "/clusters/0"
       }
     },
     "ecs-services": {
@@ -66,6 +80,15 @@
       },
       "field_mappings": {
         "serviceArn": { "source": "", "default": "-" }
+      },
+      "action_configs": {
+        "delete_service": {
+          "action_id": "delete_service",
+          "protocol": "json",
+          "action": "DeleteService",
+          "body_template": "{\"cluster\": \"{cluster}\", \"service\": \"{resource_id}\", \"force\": true}",
+          "special_handling": "parse_arn_for_cluster"
+        }
       }
     },
     "ecs-tasks": {
@@ -100,6 +123,15 @@
       },
       "field_mappings": {
         "taskArn": { "source": "", "default": "-" }
+      },
+      "action_configs": {
+        "stop_task": {
+          "action_id": "stop_task",
+          "protocol": "json",
+          "action": "StopTask",
+          "body_template": "{\"cluster\": \"{cluster}\", \"task\": \"{resource_id}\"}",
+          "special_handling": "parse_arn_for_cluster"
+        }
       }
     }
   }

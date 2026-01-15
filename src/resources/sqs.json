@@ -24,6 +24,20 @@
       },
       "field_mappings": {
         "QueueUrl": { "source": "", "default": "-" }
+      },
+      "action_configs": {
+        "purge_queue": {
+          "action_id": "purge_queue",
+          "protocol": "query",
+          "action": "PurgeQueue",
+          "id_param": "QueueUrl"
+        },
+        "delete_queue": {
+          "action_id": "delete_queue",
+          "protocol": "query",
+          "action": "DeleteQueue",
+          "id_param": "QueueUrl"
+        }
       }
     }
   }

@@ -31,6 +31,14 @@
         "CreationTime": { "source": "/CreationTime", "default": "-" },
         "LastUpdatedTime": { "source": "/LastUpdatedTime", "default": "-" },
         "Description": { "source": "/Description", "default": "-" }
+      },
+      "action_configs": {
+        "delete_stack": {
+          "action_id": "delete_stack",
+          "protocol": "query",
+          "action": "DeleteStack",
+          "id_param": "StackName"
+        }
       }
     }
   }

@@ -346,295 +346,398 @@ pub async fn invoke_sdk(
 }
 
 // =============================================================================
-// Action Functions (write operations)
+// Data-Driven Action Execution
+// =============================================================================
+
+/// Execute an action using data-driven configuration from JSON
+pub async fn execute_action_data_driven(
+    resource_key: &str,
+    action_id: &str,
+    clients: &AwsClients,
+    resource_id: &str,
+) -> Result<()> {
+    let resource_def =
+        get_resource(resource_key).ok_or_else(|| anyhow!("Unknown resource: {}", resource_key))?;
+
+    let action_config = resource_def
+        .action_configs
+        .get(action_id)
+        .ok_or_else(|| anyhow!("Action '{}' not configured for {}", action_id, resource_key))?;
+
+    let service = action_config
+        .service_name
+        .as_deref()
+        .unwrap_or(&resource_def.service);
+
+    debug!(
+        "Executing data-driven action: {} on {} (service: {}, protocol: {:?})",
+        action_id, resource_key, service, action_config.protocol
+    );
+
+    match action_config.protocol {
+        ApiProtocol::Query => {
+            let action_name = action_config
+                .action
+                .as_ref()
+                .ok_or_else(|| anyhow!("Query action requires 'action' field"))?;
+
+            let mut params: Vec<(&str, &str)> = Vec::new();
+
+            // Add resource ID parameter
+            if let Some(ref id_param) = action_config.id_param {
+                params.push((id_param.as_str(), resource_id));
+            }
+
+            // Add static parameters
+            for (key, value) in &action_config.static_params {
+                if let Some(s) = value.as_str() {
+                    params.push((key.as_str(), s));
+                }
+            }
+
+            // Convert to owned for the request
+            let params_owned: Vec<(String, String)> = params
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect();
+            let params_ref: Vec<(&str, &str)> = params_owned
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect();
+
+            clients
+                .http
+                .query_request(service, action_name, &params_ref)
+                .await?;
+            Ok(())
+        }
+
+        ApiProtocol::Json => {
+            let action_name = action_config
+                .action
+                .as_ref()
+                .ok_or_else(|| anyhow!("JSON action requires 'action' field"))?;
+
+            let body = if let Some(ref template) = action_config.body_template {
+                // Handle special ARN parsing if needed
+                let actual_id =
+                    if action_config.special_handling.as_deref() == Some("parse_arn_for_cluster") {
+                        // Extract cluster from ARN like arn:aws:ecs:region:account:service/cluster/service-name
+                        let parts: Vec<&str> = resource_id.split('/').collect();
+                        if parts.len() >= 2 {
+                            parts[parts.len() - 2].to_string()
+                        } else {
+                            resource_id.to_string()
+                        }
+                    } else {
+                        resource_id.to_string()
+                    };
+
+                template
+                    .replace("{resource_id}", &actual_id)
+                    .replace("{cluster}", &{
+                        let parts: Vec<&str> = resource_id.split('/').collect();
+                        if parts.len() >= 2 {
+                            parts[parts.len() - 2]
+                        } else {
+                            resource_id
+                        }
+                    })
+            } else {
+                // Build body from id_param
+                let id_param = action_config.id_param.as_deref().unwrap_or("id");
+                json!({ id_param: resource_id }).to_string()
+            };
+
+            clients
+                .http
+                .json_request(service, action_name, &body)
+                .await?;
+            Ok(())
+        }
+
+        ApiProtocol::RestJson => {
+            let method = action_config.method.as_deref().unwrap_or("DELETE");
+            let path_template = action_config
+                .path
+                .as_ref()
+                .ok_or_else(|| anyhow!("REST-JSON action requires 'path' field"))?;
+
+            let path = path_template.replace("{resource_id}", resource_id);
+            let body = action_config.body_template.as_deref();
+
+            clients
+                .http
+                .rest_json_request(service, method, &path, body)
+                .await?;
+            Ok(())
+        }
+
+        ApiProtocol::RestXml => {
+            let method = action_config.method.as_deref().unwrap_or("DELETE");
+            let path_template = action_config
+                .path
+                .as_ref()
+                .ok_or_else(|| anyhow!("REST-XML action requires 'path' field"))?;
+
+            let path = path_template.replace("{resource_id}", resource_id);
+
+            clients
+                .http
+                .rest_xml_request(service, method, &path, None)
+                .await?;
+            Ok(())
+        }
+    }
+}
+
+// =============================================================================
+// Data-Driven Describe
+// =============================================================================
+
+/// Describe a single resource using data-driven configuration
+pub async fn describe_resource_data_driven(
+    resource_key: &str,
+    clients: &AwsClients,
+    resource_id: &str,
+) -> Result<Value> {
+    let resource_def =
+        get_resource(resource_key).ok_or_else(|| anyhow!("Unknown resource: {}", resource_key))?;
+
+    let describe_config = resource_def
+        .describe_config
+        .as_ref()
+        .ok_or_else(|| anyhow!("Describe not configured for {}", resource_key))?;
+
+    let service = describe_config
+        .service_name
+        .as_deref()
+        .unwrap_or(&resource_def.service);
+
+    debug!(
+        "Describing resource: {} with id: {} (service: {}, protocol: {:?})",
+        resource_key, resource_id, service, describe_config.protocol
+    );
+
+    let mut result = match describe_config.protocol {
+        ApiProtocol::Query => {
+            let action_name = describe_config
+                .action
+                .as_ref()
+                .ok_or_else(|| anyhow!("Query describe requires 'action' field"))?;
+
+            let id_param = describe_config.id_param.as_deref().unwrap_or("Id");
+            let xml = clients
+                .http
+                .query_request(service, action_name, &[(id_param, resource_id)])
+                .await?;
+            let json = xml_to_json(&xml)?;
+
+            // Extract from response path
+            if let Some(ref path) = describe_config.response_path {
+                extract_single_item(&json, path)?
+            } else {
+                json
+            }
+        }
+
+        ApiProtocol::Json => {
+            let action_name = describe_config
+                .action
+                .as_ref()
+                .ok_or_else(|| anyhow!("JSON describe requires 'action' field"))?;
+
+            let body = if let Some(ref template) = describe_config.body_template {
+                template.replace("{resource_id}", resource_id)
+            } else {
+                let id_param = describe_config.id_param.as_deref().unwrap_or("id");
+                json!({ id_param: resource_id }).to_string()
+            };
+
+            let response = clients
+                .http
+                .json_request(service, action_name, &body)
+                .await?;
+            let json: Value = serde_json::from_str(&response)?;
+
+            if let Some(ref path) = describe_config.response_path {
+                json.pointer(path).cloned().unwrap_or(json)
+            } else {
+                json
+            }
+        }
+
+        ApiProtocol::RestJson => {
+            let method = describe_config.method.as_deref().unwrap_or("GET");
+            let path_template = describe_config
+                .path
+                .as_ref()
+                .ok_or_else(|| anyhow!("REST-JSON describe requires 'path' field"))?;
+
+            let path = path_template.replace("{resource_id}", resource_id);
+            let response = clients
+                .http
+                .rest_json_request(service, method, &path, None)
+                .await?;
+            let json: Value = serde_json::from_str(&response)?;
+
+            if let Some(ref resp_path) = describe_config.response_path {
+                json.pointer(resp_path).cloned().unwrap_or(json)
+            } else {
+                json
+            }
+        }
+
+        ApiProtocol::RestXml => {
+            let method = describe_config.method.as_deref().unwrap_or("GET");
+            let path_template = describe_config
+                .path
+                .as_ref()
+                .ok_or_else(|| anyhow!("REST-XML describe requires 'path' field"))?;
+
+            let path = path_template.replace("{resource_id}", resource_id);
+            let xml = clients
+                .http
+                .rest_xml_request(service, method, &path, None)
+                .await?;
+            let json = xml_to_json(&xml)?;
+
+            if let Some(ref resp_path) = describe_config.response_path {
+                json.pointer(resp_path).cloned().unwrap_or(json)
+            } else {
+                json
+            }
+        }
+    };
+
+    // Handle enrich calls (additional API calls to add more data)
+    for enrich in &describe_config.enrich_calls {
+        let enrich_result = execute_enrich_call(
+            clients,
+            service,
+            resource_id,
+            enrich,
+            &describe_config.protocol,
+        )
+        .await;
+        match enrich_result {
+            Ok(value) => {
+                if let Value::Object(ref mut map) = result {
+                    map.insert(enrich.result_field.clone(), value);
+                }
+            }
+            Err(_) => {
+                if let Some(ref default) = enrich.default_value {
+                    if let Value::Object(ref mut map) = result {
+                        map.insert(enrich.result_field.clone(), json!(default));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+/// Execute an enrichment call for describe
+async fn execute_enrich_call(
+    clients: &AwsClients,
+    service: &str,
+    resource_id: &str,
+    enrich: &super::protocol::EnrichCall,
+    _protocol: &ApiProtocol,
+) -> Result<Value> {
+    // For now, support REST-XML S3 style enrich calls
+    if let Some(ref path) = enrich.path {
+        let path = path.replace("{resource_id}", resource_id);
+        let method = enrich.method.as_deref().unwrap_or("GET");
+
+        let xml = clients
+            .http
+            .rest_xml_request(service, method, &path, None)
+            .await?;
+        let json = xml_to_json(&xml)?;
+
+        if let Some(ref extract) = enrich.extract_path {
+            Ok(json.pointer(extract).cloned().unwrap_or(Value::Null))
+        } else {
+            Ok(json)
+        }
+    } else {
+        Err(anyhow!("Enrich call requires path"))
+    }
+}
+
+/// Extract a single item from a response that may be array or object
+fn extract_single_item(json: &Value, path: &str) -> Result<Value> {
+    let value = json
+        .pointer(path)
+        .ok_or_else(|| anyhow!("Response path not found: {}", path))?;
+
+    match value {
+        Value::Array(arr) => arr
+            .first()
+            .cloned()
+            .ok_or_else(|| anyhow!("Empty response")),
+        obj @ Value::Object(_) => Ok(obj.clone()),
+        _ => Ok(value.clone()),
+    }
+}
+
+// =============================================================================
+// Unified Action Execution
 // =============================================================================
 
 /// Execute an action on a resource (start, stop, terminate, etc.)
+/// First tries data-driven dispatch from JSON config, then falls back to legacy.
 pub async fn execute_action(
     service: &str,
     action: &str,
     clients: &AwsClients,
     resource_id: &str,
 ) -> Result<()> {
+    // Try to find a resource with this action configured in JSON
+    if let Some((resource_key, _)) = find_resource_with_action(service, action) {
+        debug!(
+            "Found data-driven action config for {}:{} in {}",
+            service, action, resource_key
+        );
+        return execute_action_data_driven(&resource_key, action, clients, resource_id).await;
+    }
+
+    // Fall back to legacy hardcoded handlers for unconfigured actions
+    debug!(
+        "No data-driven config found for {}:{}, using legacy handler",
+        service, action
+    );
+    execute_action_legacy(service, action, clients, resource_id).await
+}
+
+/// Find a resource that has the given action configured
+fn find_resource_with_action(
+    service: &str,
+    action_id: &str,
+) -> Option<(String, &'static super::registry::ResourceDef)> {
+    use super::registry::get_registry;
+
+    for (key, resource) in &get_registry().resources {
+        if resource.service == service && resource.action_configs.contains_key(action_id) {
+            return Some((key.clone(), resource));
+        }
+    }
+    None
+}
+
+/// Legacy action execution (fallback for special actions not configurable in JSON)
+async fn execute_action_legacy(
+    service: &str,
+    action: &str,
+    clients: &AwsClients,
+    resource_id: &str,
+) -> Result<()> {
     match (service, action) {
-        // EC2 Instance Actions
-        ("ec2", "start_instance") => {
-            clients
-                .http
-                .query_request("ec2", "StartInstances", &[("InstanceId.1", resource_id)])
-                .await?;
-            Ok(())
-        }
-        ("ec2", "stop_instance") => {
-            clients
-                .http
-                .query_request("ec2", "StopInstances", &[("InstanceId.1", resource_id)])
-                .await?;
-            Ok(())
-        }
-        ("ec2", "reboot_instance") => {
-            clients
-                .http
-                .query_request("ec2", "RebootInstances", &[("InstanceId.1", resource_id)])
-                .await?;
-            Ok(())
-        }
-        ("ec2", "terminate_instance") => {
-            clients
-                .http
-                .query_request(
-                    "ec2",
-                    "TerminateInstances",
-                    &[("InstanceId.1", resource_id)],
-                )
-                .await?;
-            Ok(())
-        }
-
-        // Lambda Actions
-        ("lambda", "invoke_function") => {
-            clients
-                .http
-                .rest_json_request(
-                    "lambda",
-                    "POST",
-                    &format!("/2015-03-31/functions/{}/invocations", resource_id),
-                    Some("{}"),
-                )
-                .await?;
-            Ok(())
-        }
-        ("lambda", "delete_function") => {
-            clients
-                .http
-                .rest_json_request(
-                    "lambda",
-                    "DELETE",
-                    &format!("/2015-03-31/functions/{}", resource_id),
-                    None,
-                )
-                .await?;
-            Ok(())
-        }
-
-        // RDS Actions
-        ("rds", "start_db_instance") => {
-            clients
-                .http
-                .query_request(
-                    "rds",
-                    "StartDBInstance",
-                    &[("DBInstanceIdentifier", resource_id)],
-                )
-                .await?;
-            Ok(())
-        }
-        ("rds", "stop_db_instance") => {
-            clients
-                .http
-                .query_request(
-                    "rds",
-                    "StopDBInstance",
-                    &[("DBInstanceIdentifier", resource_id)],
-                )
-                .await?;
-            Ok(())
-        }
-        ("rds", "reboot_db_instance") => {
-            clients
-                .http
-                .query_request(
-                    "rds",
-                    "RebootDBInstance",
-                    &[("DBInstanceIdentifier", resource_id)],
-                )
-                .await?;
-            Ok(())
-        }
-        ("rds", "delete_db_instance") => {
-            clients
-                .http
-                .query_request(
-                    "rds",
-                    "DeleteDBInstance",
-                    &[
-                        ("DBInstanceIdentifier", resource_id),
-                        ("SkipFinalSnapshot", "true"),
-                    ],
-                )
-                .await?;
-            Ok(())
-        }
-        ("rds", "delete_db_snapshot") => {
-            clients
-                .http
-                .query_request(
-                    "rds",
-                    "DeleteDBSnapshot",
-                    &[("DBSnapshotIdentifier", resource_id)],
-                )
-                .await?;
-            Ok(())
-        }
-
-        // S3 Actions
-        ("s3", "delete_bucket") => {
-            clients
-                .http
-                .rest_xml_request("s3", "DELETE", &format!("/{}", resource_id), None)
-                .await?;
-            Ok(())
-        }
-
-        // SQS Actions
-        ("sqs", "purge_queue") => {
-            clients
-                .http
-                .query_request("sqs", "PurgeQueue", &[("QueueUrl", resource_id)])
-                .await?;
-            Ok(())
-        }
-        ("sqs", "delete_queue") => {
-            clients
-                .http
-                .query_request("sqs", "DeleteQueue", &[("QueueUrl", resource_id)])
-                .await?;
-            Ok(())
-        }
-
-        // SNS Actions
-        ("sns", "delete_topic") => {
-            clients
-                .http
-                .query_request("sns", "DeleteTopic", &[("TopicArn", resource_id)])
-                .await?;
-            Ok(())
-        }
-
-        // CloudFormation Actions
-        ("cloudformation", "delete_stack") => {
-            clients
-                .http
-                .query_request(
-                    "cloudformation",
-                    "DeleteStack",
-                    &[("StackName", resource_id)],
-                )
-                .await?;
-            Ok(())
-        }
-
-        // ECS Actions
-        ("ecs", "delete_cluster") => {
-            clients
-                .http
-                .json_request(
-                    "ecs",
-                    "DeleteCluster",
-                    &json!({ "cluster": resource_id }).to_string(),
-                )
-                .await?;
-            Ok(())
-        }
-        ("ecs", "delete_service") => {
-            let parts: Vec<&str> = resource_id.split('/').collect();
-            let cluster = if parts.len() >= 2 {
-                parts[parts.len() - 2]
-            } else {
-                return Err(anyhow!("Invalid service ARN format"));
-            };
-
-            clients
-                .http
-                .json_request(
-                    "ecs",
-                    "DeleteService",
-                    &json!({
-                        "cluster": cluster,
-                        "service": resource_id,
-                        "force": true
-                    })
-                    .to_string(),
-                )
-                .await?;
-            Ok(())
-        }
-        ("ecs", "stop_task") => {
-            let parts: Vec<&str> = resource_id.split('/').collect();
-            let cluster = if parts.len() >= 2 {
-                parts[parts.len() - 2]
-            } else {
-                return Err(anyhow!("Invalid task ARN format"));
-            };
-
-            clients
-                .http
-                .json_request(
-                    "ecs",
-                    "StopTask",
-                    &json!({
-                        "cluster": cluster,
-                        "task": resource_id
-                    })
-                    .to_string(),
-                )
-                .await?;
-            Ok(())
-        }
-
-        // Auto Scaling Actions
-        ("autoscaling", "delete_auto_scaling_group") => {
-            clients
-                .http
-                .query_request(
-                    "autoscaling",
-                    "DeleteAutoScalingGroup",
-                    &[
-                        ("AutoScalingGroupName", resource_id),
-                        ("ForceDelete", "true"),
-                    ],
-                )
-                .await?;
-            Ok(())
-        }
-
-        // ELBv2 Actions
-        ("elbv2", "delete_load_balancer") => {
-            clients
-                .http
-                .query_request(
-                    "elbv2",
-                    "DeleteLoadBalancer",
-                    &[("LoadBalancerArn", resource_id)],
-                )
-                .await?;
-            Ok(())
-        }
-        ("elbv2", "delete_listener") => {
-            clients
-                .http
-                .query_request("elbv2", "DeleteListener", &[("ListenerArn", resource_id)])
-                .await?;
-            Ok(())
-        }
-        ("elbv2", "delete_rule") => {
-            clients
-                .http
-                .query_request("elbv2", "DeleteRule", &[("RuleArn", resource_id)])
-                .await?;
-            Ok(())
-        }
-        ("elbv2", "delete_target_group") => {
-            clients
-                .http
-                .query_request(
-                    "elbv2",
-                    "DeleteTargetGroup",
-                    &[("TargetGroupArn", resource_id)],
-                )
-                .await?;
-            Ok(())
-        }
+        // ELBv2 deregister_targets - composite action with special resource_id format
+        // Format: target_group_arn|target_id
         ("elbv2", "deregister_targets") => {
             let parts: Vec<&str> = resource_id.split('|').collect();
             if parts.len() != 2 {
@@ -656,34 +759,8 @@ pub async fn execute_action(
             Ok(())
         }
 
-        // EKS Actions
-        ("eks", "delete_cluster") => {
-            clients
-                .http
-                .rest_json_request("eks", "DELETE", &format!("/clusters/{}", resource_id), None)
-                .await?;
-            Ok(())
-        }
-
-        // Secrets Manager Actions
-        ("secretsmanager", "delete_secret") => {
-            clients
-                .http
-                .json_request(
-                    "secretsmanager",
-                    "DeleteSecret",
-                    &json!({
-                        "SecretId": resource_id,
-                        "ForceDeleteWithoutRecovery": true
-                    })
-                    .to_string(),
-                )
-                .await?;
-            Ok(())
-        }
-
         _ => Err(anyhow!(
-            "Unknown action: service='{}', action='{}'",
+            "Unknown action: service='{}', action='{}'. Configure it in the resource JSON.",
             service,
             action
         )),
@@ -691,10 +768,11 @@ pub async fn execute_action(
 }
 
 // =============================================================================
-// Describe Functions (single resource details)
+// Unified Describe Function
 // =============================================================================
 
 /// Fetch full details for a single resource by ID
+/// First tries data-driven dispatch from JSON config, then falls back to legacy.
 pub async fn describe_resource(
     resource_key: &str,
     clients: &AwsClients,
@@ -705,37 +783,27 @@ pub async fn describe_resource(
         resource_key, resource_id
     );
 
-    match resource_key {
-        "ec2-instances" => {
-            let xml = clients
-                .http
-                .query_request("ec2", "DescribeInstances", &[("InstanceId.1", resource_id)])
-                .await?;
-            let json = xml_to_json(&xml)?;
-
-            if let Some(reservations) =
-                json.pointer("/DescribeInstancesResponse/reservationSet/item")
-            {
-                let reservation = match reservations {
-                    Value::Array(arr) => arr.first().cloned(),
-                    obj @ Value::Object(_) => Some(obj.clone()),
-                    _ => None,
-                };
-
-                if let Some(res) = reservation {
-                    if let Some(instance) = res.pointer("/instancesSet/item") {
-                        let instance = match instance {
-                            Value::Array(arr) => arr.first().cloned().unwrap_or(Value::Null),
-                            obj @ Value::Object(_) => obj.clone(),
-                            _ => Value::Null,
-                        };
-                        return Ok(instance);
-                    }
-                }
-            }
-            Err(anyhow!("Instance not found"))
+    // Try data-driven describe first
+    if let Some(resource) = get_resource(resource_key) {
+        if resource.describe_config.is_some() {
+            debug!("Using data-driven describe for {}", resource_key);
+            return describe_resource_data_driven(resource_key, clients, resource_id).await;
         }
+    }
 
+    // Fall back to legacy handlers for special cases
+    debug!("Using legacy describe for {}", resource_key);
+    describe_resource_legacy(resource_key, clients, resource_id).await
+}
+
+/// Legacy describe (fallback for resources with special handling needs)
+async fn describe_resource_legacy(
+    resource_key: &str,
+    clients: &AwsClients,
+    resource_id: &str,
+) -> Result<Value> {
+    match resource_key {
+        // S3 buckets need special region resolution and multiple API calls
         "s3-buckets" => {
             let mut result = json!({
                 "BucketName": resource_id,
@@ -779,190 +847,15 @@ pub async fn describe_resource(
             Ok(result)
         }
 
-        "lambda-functions" => {
-            let response = clients
-                .http
-                .rest_json_request(
-                    "lambda",
-                    "GET",
-                    &format!("/2015-03-31/functions/{}", resource_id),
-                    None,
-                )
-                .await?;
-            let json: Value = serde_json::from_str(&response)?;
-            Ok(json)
-        }
-
-        "rds-instances" => {
-            let xml = clients
-                .http
-                .query_request(
-                    "rds",
-                    "DescribeDBInstances",
-                    &[("DBInstanceIdentifier", resource_id)],
-                )
-                .await?;
-            let json = xml_to_json(&xml)?;
-
-            if let Some(instances) = json.pointer(
-                "/DescribeDBInstancesResponse/DescribeDBInstancesResult/DBInstances/DBInstance",
-            ) {
-                let instance = match instances {
-                    Value::Array(arr) => arr.first().cloned().unwrap_or(Value::Null),
-                    obj @ Value::Object(_) => obj.clone(),
-                    _ => Value::Null,
-                };
-                return Ok(instance);
-            }
-            Err(anyhow!("RDS instance not found"))
-        }
-
-        "iam-users" => {
-            let xml = clients
-                .http
-                .query_request("iam", "GetUser", &[("UserName", resource_id)])
-                .await?;
-            let json = xml_to_json(&xml)?;
-
-            if let Some(user) = json.pointer("/GetUserResponse/GetUserResult/User") {
-                return Ok(user.clone());
-            }
-            Err(anyhow!("IAM user not found"))
-        }
-
-        "iam-roles" => {
-            let xml = clients
-                .http
-                .query_request("iam", "GetRole", &[("RoleName", resource_id)])
-                .await?;
-            let json = xml_to_json(&xml)?;
-
-            if let Some(role) = json.pointer("/GetRoleResponse/GetRoleResult/Role") {
-                return Ok(role.clone());
-            }
-            Err(anyhow!("IAM role not found"))
-        }
-
-        "dynamodb-tables" => {
-            let response = clients
-                .http
-                .json_request(
-                    "dynamodb",
-                    "DescribeTable",
-                    &json!({ "TableName": resource_id }).to_string(),
-                )
-                .await?;
-            let json: Value = serde_json::from_str(&response)?;
-            Ok(json.get("Table").cloned().unwrap_or(json))
-        }
-
-        "eks-clusters" => {
-            let response = clients
-                .http
-                .rest_json_request("eks", "GET", &format!("/clusters/{}", resource_id), None)
-                .await?;
-            let json: Value = serde_json::from_str(&response)?;
-            Ok(json.get("cluster").cloned().unwrap_or(json))
-        }
-
-        "ecs-clusters" => {
-            let response = clients
-                .http
-                .json_request(
-                    "ecs",
-                    "DescribeClusters",
-                    &json!({ "clusters": [resource_id] }).to_string(),
-                )
-                .await?;
-            let json: Value = serde_json::from_str(&response)?;
-            if let Some(clusters) = json.get("clusters").and_then(|c| c.as_array()) {
-                if let Some(cluster) = clusters.first() {
-                    return Ok(cluster.clone());
-                }
-            }
-            Err(anyhow!("ECS cluster not found"))
-        }
-
-        "secretsmanager-secrets" => {
-            let response = clients
-                .http
-                .json_request(
-                    "secretsmanager",
-                    "DescribeSecret",
-                    &json!({ "SecretId": resource_id }).to_string(),
-                )
-                .await?;
-            let json: Value = serde_json::from_str(&response)?;
-            Ok(json)
-        }
-
-        "kms-keys" => {
-            let response = clients
-                .http
-                .json_request(
-                    "kms",
-                    "DescribeKey",
-                    &json!({ "KeyId": resource_id }).to_string(),
-                )
-                .await?;
-            let json: Value = serde_json::from_str(&response)?;
-            Ok(json.get("KeyMetadata").cloned().unwrap_or(json))
-        }
-
-        "elbv2-load-balancers" => {
-            let xml = clients
-                .http
-                .query_request(
-                    "elbv2",
-                    "DescribeLoadBalancers",
-                    &[("LoadBalancerArns.member.1", resource_id)],
-                )
-                .await?;
-            let json = xml_to_json(&xml)?;
-
-            if let Some(lbs) = json.pointer(
-                "/DescribeLoadBalancersResponse/DescribeLoadBalancersResult/LoadBalancers/member",
-            ) {
-                let lb = match lbs {
-                    Value::Array(arr) => arr.first().cloned().unwrap_or(Value::Null),
-                    obj @ Value::Object(_) => obj.clone(),
-                    _ => Value::Null,
-                };
-                return Ok(lb);
-            }
-            Err(anyhow!("Load balancer not found"))
-        }
-
-        "elbv2-target-groups" => {
-            let xml = clients
-                .http
-                .query_request(
-                    "elbv2",
-                    "DescribeTargetGroups",
-                    &[("TargetGroupArns.member.1", resource_id)],
-                )
-                .await?;
-            let json = xml_to_json(&xml)?;
-
-            if let Some(tgs) = json.pointer(
-                "/DescribeTargetGroupsResponse/DescribeTargetGroupsResult/TargetGroups/member",
-            ) {
-                let tg = match tgs {
-                    Value::Array(arr) => arr.first().cloned().unwrap_or(Value::Null),
-                    obj @ Value::Object(_) => obj.clone(),
-                    _ => Value::Null,
-                };
-                return Ok(tg);
-            }
-            Err(anyhow!("Target group not found"))
-        }
-
         _ => {
             debug!(
                 "No describe implementation for {}, falling back to list data",
                 resource_key
             );
-            Err(anyhow!("Describe not implemented for {}", resource_key))
+            Err(anyhow!(
+                "Describe not implemented for {}. Configure describe_config in the resource JSON.",
+                resource_key
+            ))
         }
     }
 }

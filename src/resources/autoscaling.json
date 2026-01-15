@@ -33,6 +33,17 @@
         "DesiredCapacity": { "source": "/DesiredCapacity", "default": "0" },
         "InstanceCount": { "source": "/Instances/member", "default": "0" },
         "AvailabilityZones": { "source": "/AvailabilityZones", "default": "-" }
+      },
+      "action_configs": {
+        "delete_auto_scaling_group": {
+          "action_id": "delete_auto_scaling_group",
+          "protocol": "query",
+          "action": "DeleteAutoScalingGroup",
+          "id_param": "AutoScalingGroupName",
+          "static_params": {
+            "ForceDelete": "true"
+          }
+        }
       }
     }
   }

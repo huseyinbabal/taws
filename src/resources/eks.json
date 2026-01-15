@@ -30,6 +30,20 @@
       },
       "field_mappings": {
         "name": { "source": "", "default": "-" }
+      },
+      "action_configs": {
+        "delete_cluster": {
+          "action_id": "delete_cluster",
+          "protocol": "rest-json",
+          "method": "DELETE",
+          "path": "/clusters/{resource_id}"
+        }
+      },
+      "describe_config": {
+        "protocol": "rest-json",
+        "method": "GET",
+        "path": "/clusters/{resource_id}",
+        "response_path": "/cluster"
       }
     }
   }

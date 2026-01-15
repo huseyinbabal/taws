@@ -161,6 +161,106 @@ pub struct ParsedResponse {
     pub next_token: Option<String>,
 }
 
+/// Configuration for an action (write operation like start/stop/delete)
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ActionConfig {
+    /// The action identifier (e.g., "start_instance", "delete_bucket")
+    pub action_id: String,
+
+    /// Protocol to use for this action
+    pub protocol: ApiProtocol,
+
+    /// Service name override (if different from resource's service)
+    #[serde(default)]
+    pub service_name: Option<String>,
+
+    /// API action name (for Query/JSON protocols, e.g., "StartInstances")
+    #[serde(default)]
+    pub action: Option<String>,
+
+    /// HTTP method (for REST protocols: POST, DELETE, etc.)
+    #[serde(default)]
+    pub method: Option<String>,
+
+    /// URL path template (for REST protocols)
+    /// Supports placeholders like {resource_id}
+    #[serde(default)]
+    pub path: Option<String>,
+
+    /// Parameter name for the resource ID in the request
+    /// e.g., "InstanceId.1" for EC2, "DBInstanceIdentifier" for RDS
+    #[serde(default)]
+    pub id_param: Option<String>,
+
+    /// Static parameters to always include
+    #[serde(default)]
+    pub static_params: HashMap<String, Value>,
+
+    /// For JSON body requests, the body template
+    /// Supports {resource_id} placeholder
+    #[serde(default)]
+    pub body_template: Option<String>,
+
+    /// Special handling needed (e.g., "parse_arn_for_cluster" for ECS)
+    #[serde(default)]
+    pub special_handling: Option<String>,
+}
+
+/// Configuration for describe operation (single resource details)
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DescribeConfig {
+    /// Protocol to use
+    pub protocol: ApiProtocol,
+
+    /// Service name override
+    #[serde(default)]
+    pub service_name: Option<String>,
+
+    /// API action name (e.g., "DescribeInstances", "GetFunction")
+    #[serde(default)]
+    pub action: Option<String>,
+
+    /// HTTP method (for REST)
+    #[serde(default)]
+    pub method: Option<String>,
+
+    /// URL path template (for REST)
+    #[serde(default)]
+    pub path: Option<String>,
+
+    /// Parameter name for the resource ID
+    #[serde(default)]
+    pub id_param: Option<String>,
+
+    /// Path to extract the single resource from response
+    #[serde(default)]
+    pub response_path: Option<String>,
+
+    /// For JSON body requests
+    #[serde(default)]
+    pub body_template: Option<String>,
+
+    /// Additional API calls to enrich the response (e.g., S3 bucket versioning/encryption)
+    #[serde(default)]
+    pub enrich_calls: Vec<EnrichCall>,
+}
+
+/// Additional API call to enrich describe response
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct EnrichCall {
+    /// API action or path
+    pub action: Option<String>,
+    pub path: Option<String>,
+    pub method: Option<String>,
+    /// Field name to store result
+    pub result_field: String,
+    /// Path to extract value from response
+    pub extract_path: Option<String>,
+    /// Default value if call fails
+    #[serde(default)]
+    pub default_value: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

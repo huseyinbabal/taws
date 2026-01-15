@@ -23,6 +23,14 @@
       },
       "field_mappings": {
         "TopicArn": { "source": "/TopicArn", "default": "-" }
+      },
+      "action_configs": {
+        "delete_topic": {
+          "action_id": "delete_topic",
+          "protocol": "query",
+          "action": "DeleteTopic",
+          "id_param": "TopicArn"
+        }
       }
     }
   }

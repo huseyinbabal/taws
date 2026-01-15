@@ -37,6 +37,41 @@
         "DBInstanceClass": { "source": "/DBInstanceClass", "default": "-" },
         "AvailabilityZone": { "source": "/AvailabilityZone", "default": "-" },
         "Endpoint": { "source": "/Endpoint/Address", "default": "-" }
+      },
+      "action_configs": {
+        "start_db_instance": {
+          "action_id": "start_db_instance",
+          "protocol": "query",
+          "action": "StartDBInstance",
+          "id_param": "DBInstanceIdentifier"
+        },
+        "stop_db_instance": {
+          "action_id": "stop_db_instance",
+          "protocol": "query",
+          "action": "StopDBInstance",
+          "id_param": "DBInstanceIdentifier"
+        },
+        "reboot_db_instance": {
+          "action_id": "reboot_db_instance",
+          "protocol": "query",
+          "action": "RebootDBInstance",
+          "id_param": "DBInstanceIdentifier"
+        },
+        "delete_db_instance": {
+          "action_id": "delete_db_instance",
+          "protocol": "query",
+          "action": "DeleteDBInstance",
+          "id_param": "DBInstanceIdentifier",
+          "static_params": {
+            "SkipFinalSnapshot": "true"
+          }
+        }
+      },
+      "describe_config": {
+        "protocol": "query",
+        "action": "DescribeDBInstances",
+        "id_param": "DBInstanceIdentifier",
+        "response_path": "/DescribeDBInstancesResponse/DescribeDBInstancesResult/DBInstances/DBInstance"
       }
     },
     "rds-snapshots": {
@@ -76,6 +111,14 @@
         "Engine": { "source": "/Engine", "default": "-" },
         "AllocatedStorage": { "source": "/AllocatedStorage", "default": "0" },
         "SnapshotCreateTime": { "source": "/SnapshotCreateTime", "default": "-" }
+      },
+      "action_configs": {
+        "delete_db_snapshot": {
+          "action_id": "delete_db_snapshot",
+          "protocol": "query",
+          "action": "DeleteDBSnapshot",
+          "id_param": "DBSnapshotIdentifier"
+        }
       }
     }
   }

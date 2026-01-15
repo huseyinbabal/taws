@@ -39,6 +39,26 @@
         "MemorySize": { "source": "/MemorySize", "default": "0" },
         "LastModified": { "source": "/LastModified", "default": "-" },
         "Description": { "source": "/Description", "default": "-" }
+      },
+      "action_configs": {
+        "invoke_function": {
+          "action_id": "invoke_function",
+          "protocol": "rest-json",
+          "method": "POST",
+          "path": "/2015-03-31/functions/{resource_id}/invocations",
+          "body_template": "{}"
+        },
+        "delete_function": {
+          "action_id": "delete_function",
+          "protocol": "rest-json",
+          "method": "DELETE",
+          "path": "/2015-03-31/functions/{resource_id}"
+        }
+      },
+      "describe_config": {
+        "protocol": "rest-json",
+        "method": "GET",
+        "path": "/2015-03-31/functions/{resource_id}"
       }
     }
   }

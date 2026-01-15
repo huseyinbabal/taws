@@ -8,7 +8,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-use super::protocol::{ApiConfig, FieldMapping};
+use super::protocol::{ActionConfig, ApiConfig, DescribeConfig, FieldMapping};
 
 /// Embedded resource JSON files (compiled into the binary)
 const RESOURCE_FILES: &[&str] = &[
@@ -159,7 +159,7 @@ pub struct ResourceDef {
     pub detail_sdk_method_params: Value,
 
     // === NEW DATA-DRIVEN FIELDS ===
-    /// API configuration for data-driven dispatch
+    /// API configuration for data-driven dispatch (list operations)
     /// If present, this takes precedence over sdk_method for fetching
     #[serde(default)]
     pub api_config: Option<ApiConfig>,
@@ -168,6 +168,16 @@ pub struct ResourceDef {
     /// If present, these are used to transform API responses
     #[serde(default)]
     pub field_mappings: HashMap<String, FieldMapping>,
+
+    /// Data-driven action configurations
+    /// Maps action_id (e.g., "start_instance") to its API config
+    #[serde(default)]
+    pub action_configs: HashMap<String, ActionConfig>,
+
+    /// Data-driven describe configuration
+    /// For fetching single resource details
+    #[serde(default)]
+    pub describe_config: Option<DescribeConfig>,
 }
 
 impl ResourceDef {

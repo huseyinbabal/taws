@@ -32,6 +32,12 @@
         "Arn": { "source": "/Arn", "default": "-" },
         "Path": { "source": "/Path", "default": "/" },
         "CreateDate": { "source": "/CreateDate", "default": "-" }
+      },
+      "describe_config": {
+        "protocol": "query",
+        "action": "GetUser",
+        "id_param": "UserName",
+        "response_path": "/GetUserResponse/GetUserResult/User"
       }
     },
     "iam-user-policies": {
@@ -153,6 +159,12 @@
         "Path": { "source": "/Path", "default": "/" },
         "CreateDate": { "source": "/CreateDate", "default": "-" },
         "Description": { "source": "/Description", "default": "-" }
+      },
+      "describe_config": {
+        "protocol": "query",
+        "action": "GetRole",
+        "id_param": "RoleName",
+        "response_path": "/GetRoleResponse/GetRoleResult/Role"
       }
     },
     "iam-role-policies": {

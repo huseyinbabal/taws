@@ -38,6 +38,20 @@
         "State": { "source": "/State/Code", "default": "-" },
         "VpcId": { "source": "/VpcId", "default": "-" },
         "CreatedTime": { "source": "/CreatedTime", "default": "-" }
+      },
+      "action_configs": {
+        "delete_load_balancer": {
+          "action_id": "delete_load_balancer",
+          "protocol": "query",
+          "action": "DeleteLoadBalancer",
+          "id_param": "LoadBalancerArn"
+        }
+      },
+      "describe_config": {
+        "protocol": "query",
+        "action": "DescribeLoadBalancers",
+        "id_param": "LoadBalancerArns.member.1",
+        "response_path": "/DescribeLoadBalancersResponse/DescribeLoadBalancersResult/LoadBalancers/member"
       }
     },
     "elbv2-listeners": {
@@ -77,6 +91,14 @@
         "Protocol": { "source": "/Protocol", "default": "-" },
         "SslPolicy": { "source": "/SslPolicy", "default": "-" },
         "DefaultActionType": { "source": "/DefaultActions/member/Type", "transform": "first_item", "default": "-" }
+      },
+      "action_configs": {
+        "delete_listener": {
+          "action_id": "delete_listener",
+          "protocol": "query",
+          "action": "DeleteListener",
+          "id_param": "ListenerArn"
+        }
       }
     },
     "elbv2-rules": {
@@ -114,6 +136,14 @@
         "ConditionsSummary": { "source": "/Conditions/member/Field", "transform": "array_to_csv", "default": "-" },
         "ActionType": { "source": "/Actions/member/Type", "transform": "first_item", "default": "-" },
         "TargetGroupArn": { "source": "/Actions/member/TargetGroupArn", "transform": "first_item", "default": "-" }
+      },
+      "action_configs": {
+        "delete_rule": {
+          "action_id": "delete_rule",
+          "protocol": "query",
+          "action": "DeleteRule",
+          "id_param": "RuleArn"
+        }
       }
     },
     "elbv2-target-groups": {
@@ -155,6 +185,20 @@
         "TargetType": { "source": "/TargetType", "default": "-" },
         "VpcId": { "source": "/VpcId", "default": "-" },
         "HealthCheckPath": { "source": "/HealthCheckPath", "default": "-" }
+      },
+      "action_configs": {
+        "delete_target_group": {
+          "action_id": "delete_target_group",
+          "protocol": "query",
+          "action": "DeleteTargetGroup",
+          "id_param": "TargetGroupArn"
+        }
+      },
+      "describe_config": {
+        "protocol": "query",
+        "action": "DescribeTargetGroups",
+        "id_param": "TargetGroupArns.member.1",
+        "response_path": "/DescribeTargetGroupsResponse/DescribeTargetGroupsResult/TargetGroups/member"
       }
     },
     "elbv2-targets": {
