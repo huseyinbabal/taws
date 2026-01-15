@@ -1,6 +1,6 @@
 [package]
 name = "taws"
-version = "1.1.7"
+version = "1.2.0-rc.2"
 edition = "2021"
 description = "Terminal UI for AWS - navigate, observe, and manage AWS resources"
 license = "MIT"
@@ -57,3 +57,4 @@ async-trait = "0.1.89"
 
 [dev-dependencies]
 dirs = "6.0"
+tempfile = "3.24.0"

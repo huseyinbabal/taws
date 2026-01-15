@@ -139,6 +139,17 @@ fn load_credentials_inner(profile: &str) -> Result<Credentials, CredentialsError
             "Role assumption configured for profile '{}', role_arn: {}",
             profile, assume_role_config.role_arn
         );
+
+        // 3a. First try to read from AWS CLI cache (credentials from `aws` CLI commands)
+        if let Ok(creds) = load_from_cli_cache(profile, &assume_role_config.role_arn) {
+            debug!(
+                "Loaded credentials from AWS CLI cache for profile '{}'",
+                profile
+            );
+            return Ok(creds);
+        }
+
+        // 3b. Fall back to performing role assumption ourselves
         match load_from_assume_role(profile, &assume_role_config) {
             Ok(creds) => {
                 debug!(
@@ -387,6 +398,111 @@ fn load_from_sso(profile: &str) -> Result<Credentials> {
     }
 
     Ok(credentials)
+}
+
+// =============================================================================
+// AWS CLI Cache Support
+// =============================================================================
+
+/// Load credentials from AWS CLI cache directory (~/.aws/cli/cache/)
+/// The AWS CLI caches assumed role credentials when using profiles with role_arn
+fn load_from_cli_cache(profile: &str, role_arn: &str) -> Result<Credentials> {
+    let cache_dir = aws_config_dir()?.join("cli").join("cache");
+
+    if !cache_dir.exists() {
+        return Err(anyhow!("AWS CLI cache directory not found"));
+    }
+
+    trace!(
+        "Searching AWS CLI cache for role_arn: {} (profile: {})",
+        role_arn,
+        profile
+    );
+
+    // Search through all cache files to find one matching this role_arn
+    let entries = fs::read_dir(&cache_dir)
+        .map_err(|e| anyhow!("Failed to read CLI cache directory: {}", e))?;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+
+        // Only process .json files
+        if path.extension().and_then(|s| s.to_str()) != Some("json") {
+            continue;
+        }
+
+        // Try to read and parse the cache file
+        if let Some(creds) = try_read_cli_cache_file(&path, role_arn) {
+            debug!("Found valid credentials in CLI cache: {:?}", path);
+            return Ok(creds);
+        }
+    }
+
+    Err(anyhow!(
+        "No valid cached credentials found for profile '{}'",
+        profile
+    ))
+}
+
+/// Try to read credentials from a CLI cache file if it matches the role_arn
+fn try_read_cli_cache_file(path: &std::path::Path, role_arn: &str) -> Option<Credentials> {
+    let content = fs::read_to_string(path).ok()?;
+    let cache_data: serde_json::Value = serde_json::from_str(&content).ok()?;
+
+    // Check if this cache file matches our role_arn
+    // AssumedRoleUser ARN format: arn:aws:sts::account-id:assumed-role/role-name/session-name
+    // role_arn format: arn:aws:iam::account-id:role/role-name
+    let assumed_role_arn = cache_data
+        .get("AssumedRoleUser")
+        .and_then(|u| u.get("Arn"))
+        .and_then(|a| a.as_str())?;
+
+    // Extract role name and account from both ARNs and compare
+    let cache_parts: Vec<&str> = assumed_role_arn.split(':').collect();
+    let config_parts: Vec<&str> = role_arn.split(':').collect();
+
+    // Compare account IDs (index 4)
+    if cache_parts.get(4) != config_parts.get(4) {
+        return None;
+    }
+
+    // Extract role names
+    // assumed-role ARN: "assumed-role/role-name/session" -> role-name is second part
+    // role ARN: "role/role-name" -> role-name is second part
+    let cache_role_name = assumed_role_arn.split('/').nth(1)?;
+    let config_role_name = role_arn.split('/').next_back()?;
+
+    if cache_role_name != config_role_name {
+        return None;
+    }
+
+    // Extract credentials
+    let creds = cache_data.get("Credentials")?;
+
+    let access_key_id = creds.get("AccessKeyId").and_then(|v| v.as_str())?;
+    let secret_access_key = creds.get("SecretAccessKey").and_then(|v| v.as_str())?;
+    let session_token = creds.get("SessionToken").and_then(|v| v.as_str());
+
+    // Check expiration
+    if let Some(expiration_str) = creds.get("Expiration").and_then(|v| v.as_str()) {
+        if let Ok(expiration) = chrono::DateTime::parse_from_rfc3339(expiration_str) {
+            if expiration <= chrono::Utc::now() {
+                trace!("CLI cache credentials expired: {:?}", path);
+                return None;
+            }
+            trace!(
+                "CLI cache credentials valid until: {} (file: {:?})",
+                expiration,
+                path
+            );
+        }
+    }
+
+    Some(Credentials {
+        access_key_id: access_key_id.to_string(),
+        secret_access_key: secret_access_key.to_string(),
+        session_token: session_token.map(|s| s.to_string()),
+    })
 }
 
 // =============================================================================
@@ -861,9 +977,7 @@ fn call_sts_assume_role(
     let (signing_instructions, _signature) = sign(signable_request, &signing_params)?.into_parts();
 
     // Build and send the request
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()?;
+    let client = super::tls::create_blocking_client_with_timeout(Duration::from_secs(30))?;
 
     let mut request = client.post(&url);
 
@@ -1651,5 +1765,102 @@ credential_source = Environment
             let cached = guard.as_ref().unwrap();
             assert_eq!(cached.credentials.access_key_id, "ASIA_ECS_KEY");
         }
+    }
+
+    #[test]
+    fn test_try_read_cli_cache_file_matching_role() {
+        // Test that try_read_cli_cache_file correctly matches role ARNs
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let cache_json = r#"{
+            "Credentials": {
+                "AccessKeyId": "ASIATESTACCESSKEY",
+                "SecretAccessKey": "testsecretkey123",
+                "SessionToken": "testsessiontoken456",
+                "Expiration": "2099-01-01T00:00:00Z"
+            },
+            "AssumedRoleUser": {
+                "AssumedRoleId": "AROATESTROLE:taws-session",
+                "Arn": "arn:aws:sts::123456789012:assumed-role/TestRole/taws-session"
+            }
+        }"#;
+
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(cache_json.as_bytes()).unwrap();
+
+        // Matching role ARN
+        let role_arn = "arn:aws:iam::123456789012:role/TestRole";
+        let result = try_read_cli_cache_file(temp_file.path(), role_arn);
+        assert!(result.is_some(), "Should find matching credentials");
+
+        let creds = result.unwrap();
+        assert_eq!(creds.access_key_id, "ASIATESTACCESSKEY");
+        assert_eq!(creds.secret_access_key, "testsecretkey123");
+        assert_eq!(creds.session_token, Some("testsessiontoken456".to_string()));
+    }
+
+    #[test]
+    fn test_try_read_cli_cache_file_non_matching_role() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let cache_json = r#"{
+            "Credentials": {
+                "AccessKeyId": "ASIATESTACCESSKEY",
+                "SecretAccessKey": "testsecretkey123",
+                "SessionToken": "testsessiontoken456",
+                "Expiration": "2099-01-01T00:00:00Z"
+            },
+            "AssumedRoleUser": {
+                "AssumedRoleId": "AROATESTROLE:taws-session",
+                "Arn": "arn:aws:sts::123456789012:assumed-role/TestRole/taws-session"
+            }
+        }"#;
+
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(cache_json.as_bytes()).unwrap();
+
+        // Non-matching role ARN (different role name)
+        let role_arn = "arn:aws:iam::123456789012:role/DifferentRole";
+        let result = try_read_cli_cache_file(temp_file.path(), role_arn);
+        assert!(
+            result.is_none(),
+            "Should not find credentials for different role"
+        );
+
+        // Non-matching role ARN (different account)
+        let role_arn = "arn:aws:iam::999999999999:role/TestRole";
+        let result = try_read_cli_cache_file(temp_file.path(), role_arn);
+        assert!(
+            result.is_none(),
+            "Should not find credentials for different account"
+        );
+    }
+
+    #[test]
+    fn test_try_read_cli_cache_file_expired() {
+        use std::io::Write;
+        use tempfile::NamedTempFile;
+
+        let cache_json = r#"{
+            "Credentials": {
+                "AccessKeyId": "ASIATESTACCESSKEY",
+                "SecretAccessKey": "testsecretkey123",
+                "SessionToken": "testsessiontoken456",
+                "Expiration": "2020-01-01T00:00:00Z"
+            },
+            "AssumedRoleUser": {
+                "AssumedRoleId": "AROATESTROLE:taws-session",
+                "Arn": "arn:aws:sts::123456789012:assumed-role/TestRole/taws-session"
+            }
+        }"#;
+
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(cache_json.as_bytes()).unwrap();
+
+        let role_arn = "arn:aws:iam::123456789012:role/TestRole";
+        let result = try_read_cli_cache_file(temp_file.path(), role_arn);
+        assert!(result.is_none(), "Should not return expired credentials");
     }
 }

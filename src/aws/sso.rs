@@ -57,13 +57,17 @@ struct TokenResponse {
     expires_in: i64,
 }
 
-/// Cached SSO token format (compatible with AWS CLI)
+/// Cached SSO token format (compatible with AWS CLI v1 and v2)
+/// Supports both snake_case (v1/legacy) and camelCase (v2) field names via aliases
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct CachedToken {
+    #[serde(alias = "accessToken")]
     access_token: String,
+    #[serde(alias = "expiresAt")]
     expires_at: String,
-    region: String,
+    #[serde(default, alias = "region")]
+    region: Option<String>,
+    #[serde(alias = "startUrl")]
     start_url: String,
 }
 
@@ -105,9 +109,7 @@ pub fn check_existing_token(config: &SsoConfig) -> Option<String> {
 /// Start the SSO OIDC device authorization flow
 /// Returns device authorization info for UI display
 pub fn start_device_authorization(config: &SsoConfig) -> Result<DeviceAuthInfo> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()?;
+    let client = super::tls::create_blocking_client_with_timeout(Duration::from_secs(30))?;
 
     let oidc_endpoint = format!("https://oidc.{}.amazonaws.com", config.sso_region);
 
@@ -224,9 +226,7 @@ pub fn poll_for_token(config: &SsoConfig) -> Result<Option<String>> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("deviceCode not found"))?;
 
-    let http_client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()?;
+    let http_client = super::tls::create_blocking_client_with_timeout(Duration::from_secs(10))?;
 
     let oidc_endpoint = format!("https://oidc.{}.amazonaws.com", config.sso_region);
     let token_url = format!("{}/token", oidc_endpoint);
@@ -294,7 +294,7 @@ fn cache_sso_token(config: &SsoConfig, access_token: &str, expires_in: i64) -> R
     let cached_token = CachedToken {
         access_token: access_token.to_string(),
         expires_at: expires_at_str,
-        region: config.sso_region.clone(),
+        region: Some(config.sso_region.clone()),
         start_url: config.sso_start_url.clone(),
     };
 
@@ -313,9 +313,7 @@ fn cache_sso_token(config: &SsoConfig, access_token: &str, expires_in: i64) -> R
 
 /// Get role credentials using SSO access token
 pub fn get_role_credentials(config: &SsoConfig, access_token: &str) -> Result<Credentials> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()?;
+    let client = super::tls::create_blocking_client_with_timeout(Duration::from_secs(10))?;
 
     let url = format!(
         "https://portal.sso.{}.amazonaws.com/federation/credentials",
@@ -481,23 +479,54 @@ fn parse_ini_sections(
 }
 
 /// Read cached SSO token if valid
+/// Tries multiple cache file formats for compatibility with AWS CLI v1 and v2
 pub fn read_cached_token(config: &SsoConfig) -> Option<String> {
     let cache_dir = aws_config_dir().ok()?.join("sso").join("cache");
 
-    // Cache file name is SHA1 of start_url (compatible with AWS CLI for both legacy and new format)
+    // AWS CLI v2 with sso_session uses SHA1 of the session name for cache file
+    // Try this format first as it's the most current
+    let mut hasher = Sha1::new();
+    hasher.update(config.sso_session.as_bytes());
+    let hash = hasher.finalize();
+    let cache_file_v2 = format!("{:x}.json", hash);
+    let cache_path_v2 = cache_dir.join(&cache_file_v2);
+
+    if let Some(token) = try_read_token_file(&cache_path_v2) {
+        debug!(
+            "Found valid SSO token using CLI v2 format (sso_session: {})",
+            config.sso_session
+        );
+        return Some(token);
+    }
+
+    // AWS CLI v1 / legacy format uses SHA1 of start_url for cache file
     let mut hasher = Sha1::new();
     hasher.update(config.sso_start_url.as_bytes());
     let hash = hasher.finalize();
-    let cache_file_name = format!("{:x}.json", hash);
-    let cache_path = cache_dir.join(&cache_file_name);
+    let cache_file_legacy = format!("{:x}.json", hash);
+    let cache_path_legacy = cache_dir.join(&cache_file_legacy);
 
-    let content = fs::read_to_string(&cache_path).ok()?;
+    if let Some(token) = try_read_token_file(&cache_path_legacy) {
+        debug!("Found valid SSO token using legacy format (start_url-based)");
+        return Some(token);
+    }
+
+    trace!(
+        "No valid SSO token found in cache for session '{}' or start_url",
+        config.sso_session
+    );
+    None
+}
+
+/// Helper function to read and validate a token file
+fn try_read_token_file(cache_path: &std::path::Path) -> Option<String> {
+    let content = fs::read_to_string(cache_path).ok()?;
     let cached: CachedToken = serde_json::from_str(&content).ok()?;
 
     // Check expiration
     if let Ok(expires_at) = chrono::DateTime::parse_from_rfc3339(&cached.expires_at) {
         if expires_at <= chrono::Utc::now() {
-            debug!("SSO token expired");
+            trace!("SSO token in {:?} is expired", cache_path);
             return None;
         }
     }
