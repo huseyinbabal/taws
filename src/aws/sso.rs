@@ -109,9 +109,7 @@ pub fn check_existing_token(config: &SsoConfig) -> Option<String> {
 /// Start the SSO OIDC device authorization flow
 /// Returns device authorization info for UI display
 pub fn start_device_authorization(config: &SsoConfig) -> Result<DeviceAuthInfo> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()?;
+    let client = super::tls::create_blocking_client_with_timeout(Duration::from_secs(30))?;
 
     let oidc_endpoint = format!("https://oidc.{}.amazonaws.com", config.sso_region);
 
@@ -228,9 +226,7 @@ pub fn poll_for_token(config: &SsoConfig) -> Result<Option<String>> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("deviceCode not found"))?;
 
-    let http_client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()?;
+    let http_client = super::tls::create_blocking_client_with_timeout(Duration::from_secs(10))?;
 
     let oidc_endpoint = format!("https://oidc.{}.amazonaws.com", config.sso_region);
     let token_url = format!("{}/token", oidc_endpoint);
@@ -317,9 +313,7 @@ fn cache_sso_token(config: &SsoConfig, access_token: &str, expires_in: i64) -> R
 
 /// Get role credentials using SSO access token
 pub fn get_role_credentials(config: &SsoConfig, access_token: &str) -> Result<Credentials> {
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()?;
+    let client = super::tls::create_blocking_client_with_timeout(Duration::from_secs(10))?;
 
     let url = format!(
         "https://portal.sso.{}.amazonaws.com/federation/credentials",

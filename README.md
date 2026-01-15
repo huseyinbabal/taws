@@ -404,6 +404,28 @@ See [Authentication](#authentication) for credential setup.
 | `AWS_SHARED_CREDENTIALS_FILE` | Custom path to credentials file (default: `~/.aws/credentials`) |
 | `AWS_CONFIG_FILE` | Custom path to config file (default: `~/.aws/config`) |
 | `AWS_ENDPOINT_URL` | Custom endpoint URL (for LocalStack, etc.) - also used for STS AssumeRole |
+| `AWS_CA_BUNDLE` | Custom CA certificate bundle (PEM format) for corporate SSL inspection |
+| `SSL_CERT_FILE` | Alternative to `AWS_CA_BUNDLE` for custom CA certificates |
+
+### Corporate Proxy / SSL Inspection
+
+If you're behind a corporate proxy with SSL inspection, taws may fail to connect to AWS services because the proxy's CA certificate is not trusted by default.
+
+To fix this, set `AWS_CA_BUNDLE` or `SSL_CERT_FILE` to point to your corporate CA certificate bundle:
+
+```bash
+# Windows
+set AWS_CA_BUNDLE=C:\path\to\corporate-ca-bundle.pem
+taws
+
+# Linux/macOS
+export AWS_CA_BUNDLE=/path/to/corporate-ca-bundle.pem
+taws
+```
+
+The PEM file can contain multiple certificates (certificate chain). taws will load all certificates from the bundle and add them to the trusted root certificates.
+
+**Note:** This is the same environment variable used by AWS CLI, so if AWS CLI works with your CA bundle, taws should work too.
 
 ---
 

@@ -348,8 +348,18 @@ impl AwsHttpClient {
             mask_credential(&credentials.access_key_id),
             endpoint_url
         );
+
+        // Create HTTP client with TLS configuration (custom CA bundle support)
+        let http_client = super::tls::create_async_client().unwrap_or_else(|e| {
+            tracing::warn!(
+                "Failed to create TLS-configured client: {:?}. Using default.",
+                e
+            );
+            Client::new()
+        });
+
         Self {
-            http_client: Client::new(),
+            http_client,
             credentials,
             region: region.to_string(),
             endpoint_url,

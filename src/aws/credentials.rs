@@ -977,9 +977,7 @@ fn call_sts_assume_role(
     let (signing_instructions, _signature) = sign(signable_request, &signing_params)?.into_parts();
 
     // Build and send the request
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()?;
+    let client = super::tls::create_blocking_client_with_timeout(Duration::from_secs(30))?;
 
     let mut request = client.post(&url);
 
