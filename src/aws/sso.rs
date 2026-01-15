@@ -57,13 +57,17 @@ struct TokenResponse {
     expires_in: i64,
 }
 
-/// Cached SSO token format (compatible with AWS CLI)
+/// Cached SSO token format (compatible with AWS CLI v1 and v2)
+/// Supports both snake_case (v1) and camelCase (v2) field names
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct CachedToken {
+    #[serde(alias = "accessToken")]
     access_token: String,
+    #[serde(alias = "expiresAt")]
     expires_at: String,
-    region: String,
+    #[serde(default, alias = "region")]
+    region: Option<String>,
+    #[serde(alias = "startUrl")]
     start_url: String,
 }
 
@@ -294,7 +298,7 @@ fn cache_sso_token(config: &SsoConfig, access_token: &str, expires_in: i64) -> R
     let cached_token = CachedToken {
         access_token: access_token.to_string(),
         expires_at: expires_at_str,
-        region: config.sso_region.clone(),
+        region: Some(config.sso_region.clone()),
         start_url: config.sso_start_url.clone(),
     };
 
@@ -484,20 +488,43 @@ fn parse_ini_sections(
 pub fn read_cached_token(config: &SsoConfig) -> Option<String> {
     let cache_dir = aws_config_dir().ok()?.join("sso").join("cache");
 
-    // Cache file name is SHA1 of start_url (compatible with AWS CLI for both legacy and new format)
+    // AWS CLI v2 uses SHA1 of sso_session for the cache file name
+    // Try this format first (e.g., from `aws sso login`)
+    let mut hasher = Sha1::new();
+    hasher.update(config.sso_session.as_bytes());
+    let hash = hasher.finalize();
+    let cache_file_name_v2 = format!("{:x}.json", hash);
+    let cache_path_v2 = cache_dir.join(&cache_file_name_v2);
+
+    if let Some(token) = try_read_token_file(&cache_path_v2) {
+        debug!("Found valid SSO token using CLI v2 format (sso_session-based)");
+        return Some(token);
+    }
+
+    // Fallback: AWS CLI v1 legacy format uses SHA1 of start_url
     let mut hasher = Sha1::new();
     hasher.update(config.sso_start_url.as_bytes());
     let hash = hasher.finalize();
-    let cache_file_name = format!("{:x}.json", hash);
-    let cache_path = cache_dir.join(&cache_file_name);
+    let cache_file_name_legacy = format!("{:x}.json", hash);
+    let cache_path_legacy = cache_dir.join(&cache_file_name_legacy);
 
-    let content = fs::read_to_string(&cache_path).ok()?;
+    if let Some(token) = try_read_token_file(&cache_path_legacy) {
+        debug!("Found valid SSO token using legacy format (start_url-based)");
+        return Some(token);
+    }
+
+    None
+}
+
+/// Helper function to read and validate a token file
+fn try_read_token_file(cache_path: &std::path::Path) -> Option<String> {
+    let content = fs::read_to_string(cache_path).ok()?;
     let cached: CachedToken = serde_json::from_str(&content).ok()?;
 
     // Check expiration
     if let Ok(expires_at) = chrono::DateTime::parse_from_rfc3339(&cached.expires_at) {
         if expires_at <= chrono::Utc::now() {
-            debug!("SSO token expired");
+            trace!("SSO token in {:?} is expired", cache_path);
             return None;
         }
     }
