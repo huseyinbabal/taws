@@ -121,20 +121,6 @@ pub async fn invoke_list(
     ))
 }
 
-/// Check if a resource has API config for list operations
-pub fn has_api_config(resource_key: &str) -> bool {
-    get_resource(resource_key)
-        .map(|r| r.api_config.is_some())
-        .unwrap_or(false)
-}
-
-/// Get the protocol type for a resource
-pub fn get_resource_protocol(resource_key: &str) -> Option<ApiProtocol> {
-    get_resource(resource_key)
-        .and_then(|r| r.api_config.as_ref())
-        .map(|c| c.protocol)
-}
-
 // =============================================================================
 // Legacy List Operations (special cases)
 // =============================================================================
@@ -443,7 +429,7 @@ async fn invoke_action(
 
                 template
                     .replace("{resource_id}", &actual_id)
-                    .replace("{cluster}", &{
+                    .replace("{cluster}", {
                         let parts: Vec<&str> = resource_id.split('/').collect();
                         if parts.len() >= 2 {
                             parts[parts.len() - 2]
@@ -815,27 +801,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_has_api_config_returns_false_for_unknown() {
-        assert!(!has_api_config("nonexistent-resource"));
+    fn test_unknown_resource_has_no_api_config() {
+        assert!(get_resource("nonexistent-resource").is_none());
     }
 
     #[test]
     fn test_dynamodb_tables_has_api_config() {
-        assert!(has_api_config("dynamodb-tables"));
+        let resource = get_resource("dynamodb-tables").unwrap();
+        assert!(resource.has_api_config());
     }
 
     #[test]
     fn test_ec2_instances_has_api_config() {
-        assert!(has_api_config("ec2-instances"));
+        let resource = get_resource("ec2-instances").unwrap();
+        assert!(resource.has_api_config());
     }
 
     #[test]
     fn test_lambda_functions_has_api_config() {
-        assert!(has_api_config("lambda-functions"));
+        let resource = get_resource("lambda-functions").unwrap();
+        assert!(resource.has_api_config());
     }
 
     #[test]
     fn test_iam_users_has_api_config() {
-        assert!(has_api_config("iam-users"));
+        let resource = get_resource("iam-users").unwrap();
+        assert!(resource.has_api_config());
     }
 }

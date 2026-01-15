@@ -287,7 +287,7 @@ fn render_describe_view(f: &mut Frame, app: &App, area: Rect) {
         .unwrap_or_else(|| "No item selected".to_string());
 
     // Apply JSON syntax highlighting
-    let lines: Vec<Line> = json.lines().map(|l| highlight_json_line(l)).collect();
+    let lines: Vec<Line> = json.lines().map(highlight_json_line).collect();
     let total_lines = lines.len();
 
     let title = if let Some(resource) = app.current_resource() {

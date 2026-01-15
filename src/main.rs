@@ -79,9 +79,7 @@ impl LogLevel {
 }
 
 fn setup_logging(level: LogLevel) -> Option<tracing_appender::non_blocking::WorkerGuard> {
-    let Some(tracing_level) = level.to_tracing_level() else {
-        return None;
-    };
+    let tracing_level = level.to_tracing_level()?;
 
     // Get log file path
     let log_path = get_log_path();
@@ -181,6 +179,7 @@ where
 }
 
 /// Result of initialization - either an App or SSO login is required
+#[allow(clippy::large_enum_variant)]
 enum InitResult {
     App(App),
     SsoRequired {
@@ -379,6 +378,7 @@ where
 }
 
 /// Handle SSO login flow interactively
+#[allow(clippy::too_many_arguments)]
 async fn handle_sso_login_flow<B: Backend>(
     terminal: &mut Terminal<B>,
     profile: String,

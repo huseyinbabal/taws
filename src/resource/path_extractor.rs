@@ -92,6 +92,7 @@ pub fn extract_list(json: &Value, path: &str) -> Vec<Value> {
 }
 
 /// Extract a string value from JSON, with optional default
+#[allow(dead_code)]
 pub fn extract_string(json: &Value, path: &str, default: &str) -> String {
     let value = extract_by_path(json, path);
     value_to_string(&value, default)
@@ -129,6 +130,7 @@ pub fn value_to_string(value: &Value, default: &str) -> String {
 /// - RDS: { "XXXResponse": { "XXXResult": { "Items": { "Item": [...] } } } }
 ///
 /// This function handles these patterns by trying common navigation paths.
+#[allow(dead_code)]
 pub fn extract_aws_list(
     json: &Value,
     response_wrapper: Option<&str>,
@@ -170,6 +172,7 @@ pub fn extract_aws_list(
 }
 
 /// Navigate through AWS response wrapper (XXXResponse > XXXResult)
+#[allow(dead_code)]
 fn navigate_response_wrapper(json: &Value, _wrapper_hint: &str) -> Option<Value> {
     // AWS responses typically have: { "ActionResponse": { "ActionResult": { ... } } }
     // or just: { "ActionResponse": { ... } }

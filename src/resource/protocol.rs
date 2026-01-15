@@ -9,10 +9,11 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 /// AWS API protocol types
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ApiProtocol {
     /// EC2/IAM style: Action=X&Version=Y as query params, XML response
+    #[default]
     Query,
     /// JSON-RPC style with X-Amz-Target header
     Json,
@@ -20,12 +21,6 @@ pub enum ApiProtocol {
     RestJson,
     /// REST with XML body (S3, Route53)
     RestXml,
-}
-
-impl Default for ApiProtocol {
-    fn default() -> Self {
-        ApiProtocol::Query
-    }
 }
 
 /// Pagination configuration for API calls

@@ -108,12 +108,10 @@ impl ProtocolHandler for RestJsonProtocolHandler {
         // Extract items using response_root path
         let items = if let Some(root) = &config.response_root {
             extract_list(&json, root)
+        } else if let Some(arr) = json.as_array() {
+            arr.clone()
         } else {
-            if let Some(arr) = json.as_array() {
-                arr.clone()
-            } else {
-                vec![json.clone()]
-            }
+            vec![json.clone()]
         };
 
         // Extract next token if pagination is configured
