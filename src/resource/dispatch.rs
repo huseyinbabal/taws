@@ -1,12 +1,12 @@
 //! AWS API Dispatcher
 //!
 //! This module handles all AWS API dispatching:
-//! - List operations (data-driven via JSON config)
+//! - List operations via JSON config
 //! - Actions (write operations like start/stop/delete)
 //! - Describe (single resource details)
 //!
-//! Most list operations use data-driven dispatch based on JSON configuration.
-//! Special cases (S3 objects, STS) use legacy handlers.
+//! API operations are configured in JSON files under src/resources/.
+//! Special cases (S3 objects, STS) have dedicated handlers.
 
 use super::field_mapper::build_response;
 use super::handlers::get_protocol_handler;
@@ -80,11 +80,11 @@ pub fn format_log_timestamp(millis: i64) -> String {
 // Data-Driven List Operations
 // =============================================================================
 
-/// Invoke an AWS API using the data-driven configuration
+/// Invoke an AWS list API using JSON configuration
 ///
 /// This function reads the API configuration from the resource definition
 /// and uses the appropriate protocol handler to execute the request.
-pub async fn invoke_data_driven(
+pub async fn invoke_list(
     resource_key: &str,
     clients: &AwsClients,
     params: &Value,
@@ -121,14 +121,14 @@ pub async fn invoke_data_driven(
     ))
 }
 
-/// Check if a resource supports data-driven dispatch
-pub fn supports_data_driven(resource_key: &str) -> bool {
+/// Check if a resource has API config for list operations
+pub fn has_api_config(resource_key: &str) -> bool {
     get_resource(resource_key)
-        .map(|r| r.uses_data_driven_dispatch())
+        .map(|r| r.api_config.is_some())
         .unwrap_or(false)
 }
 
-/// Get the protocol type for a resource (if using data-driven dispatch)
+/// Get the protocol type for a resource
 pub fn get_resource_protocol(resource_key: &str) -> Option<ApiProtocol> {
     get_resource(resource_key)
         .and_then(|r| r.api_config.as_ref())
@@ -139,8 +139,8 @@ pub fn get_resource_protocol(resource_key: &str) -> Option<ApiProtocol> {
 // Legacy List Operations (special cases)
 // =============================================================================
 
-/// Invoke an AWS API method for special cases not suited to data-driven config.
-/// Most list operations should use invoke_data_driven instead.
+/// Invoke an AWS API method for special cases (S3 objects, STS, CloudWatch logs).
+/// Most list operations should use invoke_list instead.
 pub async fn invoke_sdk(
     service: &str,
     method: &str,
@@ -338,7 +338,7 @@ pub async fn invoke_sdk(
         }
 
         _ => Err(anyhow!(
-            "Operation not handled: service='{}', method='{}'. Use data-driven dispatch.",
+            "Operation not handled: service='{}', method='{}'. Configure it in the resource JSON.",
             service,
             method
         )),
@@ -349,8 +349,8 @@ pub async fn invoke_sdk(
 // Data-Driven Action Execution
 // =============================================================================
 
-/// Execute an action using data-driven configuration from JSON
-pub async fn execute_action_data_driven(
+/// Execute an action using JSON configuration
+async fn invoke_action(
     resource_key: &str,
     action_id: &str,
     clients: &AwsClients,
@@ -370,7 +370,7 @@ pub async fn execute_action_data_driven(
         .unwrap_or(&resource_def.service);
 
     debug!(
-        "Executing data-driven action: {} on {} (service: {}, protocol: {:?})",
+        "Executing action: {} on {} (service: {}, protocol: {:?})",
         action_id, resource_key, service, action_config.protocol
     );
 
@@ -503,8 +503,8 @@ pub async fn execute_action_data_driven(
 // Data-Driven Describe
 // =============================================================================
 
-/// Describe a single resource using data-driven configuration
-pub async fn describe_resource_data_driven(
+/// Describe a single resource using JSON configuration
+async fn invoke_describe(
     resource_key: &str,
     clients: &AwsClients,
     resource_id: &str,
@@ -697,7 +697,7 @@ fn extract_single_item(json: &Value, path: &str) -> Result<Value> {
 // =============================================================================
 
 /// Execute an action on a resource (start, stop, terminate, etc.)
-/// Uses data-driven dispatch from JSON config.
+/// Uses JSON config to execute the action.
 pub async fn execute_action(
     service: &str,
     action: &str,
@@ -712,7 +712,7 @@ pub async fn execute_action(
         )
     })?;
 
-    execute_action_data_driven(&resource_key, action, clients, resource_id).await
+    invoke_action(&resource_key, action, clients, resource_id).await
 }
 
 /// Find a resource that has the given action configured
@@ -735,12 +735,17 @@ fn find_resource_with_action(
 // =============================================================================
 
 /// Fetch full details for a single resource by ID
-/// Uses data-driven dispatch from JSON config.
+/// Uses JSON config, with special handling for S3 buckets.
 pub async fn describe_resource(
     resource_key: &str,
     clients: &AwsClients,
     resource_id: &str,
 ) -> Result<Value> {
+    // S3 buckets need special handling for region resolution
+    if resource_key == "s3-buckets" {
+        return describe_s3_bucket(clients, resource_id).await;
+    }
+
     let resource =
         get_resource(resource_key).ok_or_else(|| anyhow!("Unknown resource: {}", resource_key))?;
 
@@ -751,7 +756,54 @@ pub async fn describe_resource(
         ));
     }
 
-    describe_resource_data_driven(resource_key, clients, resource_id).await
+    invoke_describe(resource_key, clients, resource_id).await
+}
+
+/// Special handler for S3 bucket describe (needs region resolution)
+async fn describe_s3_bucket(clients: &AwsClients, bucket_name: &str) -> Result<Value> {
+    let mut result = json!({
+        "BucketName": bucket_name,
+    });
+
+    // Get bucket location first (this determines the region for other calls)
+    let bucket_region = clients
+        .http
+        .get_bucket_region(bucket_name)
+        .await
+        .unwrap_or_else(|_| "us-east-1".to_string());
+    result["Region"] = json!(&bucket_region);
+
+    // Get bucket versioning
+    if let Ok(xml) = clients
+        .http
+        .rest_xml_request_s3_bucket("GET", bucket_name, "?versioning", None, &bucket_region)
+        .await
+    {
+        if let Ok(json) = xml_to_json(&xml) {
+            let status = json
+                .pointer("/VersioningConfiguration/Status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Disabled");
+            result["Versioning"] = json!(status);
+        }
+    }
+
+    // Get bucket encryption
+    if let Ok(xml) = clients
+        .http
+        .rest_xml_request_s3_bucket("GET", bucket_name, "?encryption", None, &bucket_region)
+        .await
+    {
+        if let Ok(json) = xml_to_json(&xml) {
+            if let Some(rules) = json.pointer("/ServerSideEncryptionConfiguration/Rule") {
+                result["Encryption"] = rules.clone();
+            }
+        }
+    } else {
+        result["Encryption"] = json!("None");
+    }
+
+    Ok(result)
 }
 
 // =============================================================================
@@ -763,32 +815,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_supports_data_driven_returns_false_for_unknown() {
-        let result = supports_data_driven("nonexistent-resource");
-        assert!(!result);
+    fn test_has_api_config_returns_false_for_unknown() {
+        assert!(!has_api_config("nonexistent-resource"));
     }
 
     #[test]
-    fn test_dynamodb_tables_uses_data_driven() {
-        let result = supports_data_driven("dynamodb-tables");
-        assert!(result, "DynamoDB tables should use data-driven dispatch");
+    fn test_dynamodb_tables_has_api_config() {
+        assert!(has_api_config("dynamodb-tables"));
     }
 
     #[test]
-    fn test_ec2_instances_uses_data_driven() {
-        let result = supports_data_driven("ec2-instances");
-        assert!(result, "EC2 instances should use data-driven dispatch");
+    fn test_ec2_instances_has_api_config() {
+        assert!(has_api_config("ec2-instances"));
     }
 
     #[test]
-    fn test_lambda_functions_uses_data_driven() {
-        let result = supports_data_driven("lambda-functions");
-        assert!(result, "Lambda functions should use data-driven dispatch");
+    fn test_lambda_functions_has_api_config() {
+        assert!(has_api_config("lambda-functions"));
     }
 
     #[test]
-    fn test_iam_users_uses_data_driven() {
-        let result = supports_data_driven("iam-users");
-        assert!(result, "IAM users should use data-driven dispatch");
+    fn test_iam_users_has_api_config() {
+        assert!(has_api_config("iam-users"));
     }
 }

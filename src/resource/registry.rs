@@ -181,8 +181,8 @@ pub struct ResourceDef {
 }
 
 impl ResourceDef {
-    /// Check if this resource uses the new data-driven dispatch
-    pub fn uses_data_driven_dispatch(&self) -> bool {
+    /// Check if this resource has API config for list operations
+    pub fn has_api_config(&self) -> bool {
         self.api_config.is_some() && !self.field_mappings.is_empty()
     }
 }

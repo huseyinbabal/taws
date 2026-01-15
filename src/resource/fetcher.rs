@@ -6,7 +6,7 @@
 //! Resources with `api_config` defined will use data-driven dispatch,
 //! while legacy resources (S3 objects, STS) use the legacy invoke_sdk.
 
-use super::dispatch::{invoke_data_driven, invoke_sdk};
+use super::dispatch::{invoke_list, invoke_sdk};
 use super::registry::get_resource;
 use crate::aws::client::AwsClients;
 use anyhow::{anyhow, Result};
@@ -81,8 +81,8 @@ pub async fn fetch_resources(
     }
 
     // 3. Call SDK dispatcher - use new data-driven dispatch if api_config is defined
-    let response = if resource_def.uses_data_driven_dispatch() {
-        invoke_data_driven(resource_key, clients, &params).await?
+    let response = if resource_def.has_api_config() {
+        invoke_list(resource_key, clients, &params).await?
     } else {
         // Legacy path: use old sdk_dispatch
         invoke_sdk(
@@ -153,8 +153,8 @@ pub async fn fetch_resources_paginated(
     }
 
     // 3. Call SDK dispatcher - use new data-driven dispatch if api_config is defined
-    let response = if resource_def.uses_data_driven_dispatch() {
-        invoke_data_driven(resource_key, clients, &params).await?
+    let response = if resource_def.has_api_config() {
+        invoke_list(resource_key, clients, &params).await?
     } else {
         // Legacy path: use old sdk_dispatch
         invoke_sdk(
