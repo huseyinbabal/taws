@@ -16,7 +16,19 @@
         { "header": "ENABLED", "json_path": "Enabled", "width": 10 }
       ],
       "sub_resources": [],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "rest-xml",
+        "method": "GET",
+        "path": "/2020-05-31/distribution",
+        "response_root": "/DistributionList/Items/DistributionSummary"
+      },
+      "field_mappings": {
+        "Id": { "source": "/Id", "default": "-" },
+        "DomainName": { "source": "/DomainName", "default": "-" },
+        "Status": { "source": "/Status", "default": "-" },
+        "Enabled": { "source": "/Enabled", "transform": "bool_to_yes_no" }
+      }
     }
   }
 }

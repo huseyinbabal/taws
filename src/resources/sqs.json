@@ -16,7 +16,29 @@
       "actions": [
         { "key": "P", "display_name": "Purge Queue", "shortcut": "P", "sdk_method": "purge_queue", "confirm": { "message": "Purge SQS queue", "default_yes": false, "destructive": true } },
         { "key": "ctrl+d", "display_name": "Delete Queue", "shortcut": "ctrl+d", "sdk_method": "delete_queue", "confirm": { "message": "Delete SQS queue", "default_yes": false, "destructive": true } }
-      ]
+      ],
+      "api_config": {
+        "protocol": "query",
+        "action": "ListQueues",
+        "response_root": "/ListQueuesResponse/ListQueuesResult/QueueUrl"
+      },
+      "field_mappings": {
+        "QueueUrl": { "source": "", "default": "-" }
+      },
+      "action_configs": {
+        "purge_queue": {
+          "action_id": "purge_queue",
+          "protocol": "query",
+          "action": "PurgeQueue",
+          "id_param": "QueueUrl"
+        },
+        "delete_queue": {
+          "action_id": "delete_queue",
+          "protocol": "query",
+          "action": "DeleteQueue",
+          "id_param": "QueueUrl"
+        }
+      }
     }
   }
 }

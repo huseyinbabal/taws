@@ -16,7 +16,25 @@
         { "header": "LAST MODIFIED", "json_path": "LastModifiedDate", "width": 25 }
       ],
       "sub_resources": [],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "json",
+        "action": "DescribeParameters",
+        "response_root": "/Parameters",
+        "pagination": {
+          "input_token": "NextToken",
+          "output_token": "/NextToken",
+          "max_results_param": "MaxResults",
+          "max_results": 50
+        }
+      },
+      "field_mappings": {
+        "Name": { "source": "/Name", "default": "-" },
+        "Type": { "source": "/Type", "default": "-" },
+        "Tier": { "source": "/Tier", "default": "-" },
+        "LastModifiedDate": { "source": "/LastModifiedDate", "default": "-" },
+        "Description": { "source": "/Description", "default": "-" }
+      }
     }
   }
 }

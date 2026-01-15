@@ -20,11 +20,60 @@
       ],
       "sub_resources": [],
       "actions": [
-        { "key": "s", "display_name": "Start", "shortcut": "s", "sdk_method": "start_instance" },
+        { "key": "c", "display_name": "Connect (SSM)", "shortcut": "c", "sdk_method": "ssm_connect" },
+        { "key": "s", "display_name": "Start", "shortcut": "s", "sdk_method": "start_instance", "confirm": { "message": "Start instance", "default_yes": false } },
         { "key": "S", "display_name": "Stop", "shortcut": "S", "sdk_method": "stop_instance", "confirm": { "message": "Stop instance", "default_yes": false } },
         { "key": "r", "display_name": "Reboot", "shortcut": "r", "sdk_method": "reboot_instance", "confirm": { "message": "Reboot instance", "default_yes": false } },
         { "key": "ctrl+d", "display_name": "Terminate", "shortcut": "ctrl+d", "sdk_method": "terminate_instance", "confirm": { "message": "Terminate instance", "default_yes": false, "destructive": true } }
-      ]
+      ],
+      "api_config": {
+        "protocol": "query",
+        "action": "DescribeInstances",
+        "response_root": "/DescribeInstancesResponse/reservationSet/item/instancesSet/item"
+      },
+      "field_mappings": {
+        "InstanceId": { "source": "/instanceId", "default": "-" },
+        "InstanceType": { "source": "/instanceType", "default": "-" },
+        "State": { "source": "/instanceState/name", "default": "-" },
+        "AvailabilityZone": { "source": "/placement/availabilityZone", "default": "-" },
+        "PublicIpAddress": { "source": "/ipAddress", "default": "-" },
+        "PrivateIpAddress": { "source": "/privateIpAddress", "default": "-" },
+        "LaunchTime": { "source": "/launchTime", "default": "-" },
+        "Platform": { "source": "/platform", "default": "" },
+        "Tags": { "source": "/tagSet/item", "transform": "tags_to_map" }
+      },
+      "action_configs": {
+        "start_instance": {
+          "action_id": "start_instance",
+          "protocol": "query",
+          "action": "StartInstances",
+          "id_param": "InstanceId.1"
+        },
+        "stop_instance": {
+          "action_id": "stop_instance",
+          "protocol": "query",
+          "action": "StopInstances",
+          "id_param": "InstanceId.1"
+        },
+        "reboot_instance": {
+          "action_id": "reboot_instance",
+          "protocol": "query",
+          "action": "RebootInstances",
+          "id_param": "InstanceId.1"
+        },
+        "terminate_instance": {
+          "action_id": "terminate_instance",
+          "protocol": "query",
+          "action": "TerminateInstances",
+          "id_param": "InstanceId.1"
+        }
+      },
+      "describe_config": {
+        "protocol": "query",
+        "action": "DescribeInstances",
+        "id_param": "InstanceId.1",
+        "response_path": "/DescribeInstancesResponse/reservationSet/item/instancesSet/item"
+      }
     }
   }
 }

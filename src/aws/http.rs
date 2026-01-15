@@ -3,15 +3,17 @@
 //! Replaces 55 AWS SDK crates with a single HTTP client
 
 use anyhow::{anyhow, Result};
-use reqwest::Client;
-use aws_sigv4::http_request::{sign, SigningSettings, SignableRequest, SignableBody};
+use aws_sigv4::http_request::{sign, SignableBody, SignableRequest, SigningSettings};
 use aws_sigv4::sign::v4::SigningParams;
 use aws_smithy_runtime_api::client::identity::Identity;
-use std::time::SystemTime;
+use reqwest::Client;
 use std::collections::HashMap;
+use std::time::SystemTime;
 use tracing::{debug, trace, warn};
 
 use super::credentials::Credentials;
+
+const EUSC_PREFIX: &str = "eusc-";
 
 /// Extract region from S3 URL patterns like:
 /// - https://bucket.s3.us-west-1.amazonaws.com/
@@ -19,16 +21,22 @@ use super::credentials::Credentials;
 fn extract_region_from_s3_url(url: &str) -> Option<String> {
     // Look for patterns like "s3.us-west-1.amazonaws.com" or "s3-us-west-1.amazonaws.com"
     let url_lower = url.to_lowercase();
-    
+
     // Find "s3." or "s3-" followed by region
     for prefix in &["s3.", "s3-"] {
         if let Some(pos) = url_lower.find(prefix) {
             let after_prefix = &url_lower[pos + prefix.len()..];
             // Region format: xx-xxxx-N (e.g., us-west-1, eu-central-1, ap-southeast-2)
-            if let Some(end) = after_prefix.find(".amazonaws.com") {
+            if let Some(end) = after_prefix.find(".amazonaws.") {
                 let region = &after_prefix[..end];
                 // Validate it looks like a region (contains at least one hyphen and ends with digit)
-                if region.contains('-') && region.chars().last().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+                if region.contains('-')
+                    && region
+                        .chars()
+                        .last()
+                        .map(|c| c.is_ascii_digit())
+                        .unwrap_or(false)
+                {
                     return Some(region.to_string());
                 }
             }
@@ -42,7 +50,7 @@ fn mask_credential(value: &str) -> String {
     if value.len() <= 8 {
         "*".repeat(value.len())
     } else {
-        format!("{}...{}", &value[..4], &value[value.len()-4..])
+        format!("{}...{}", &value[..4], &value[value.len() - 4..])
     }
 }
 
@@ -363,35 +371,71 @@ impl AwsHttpClient {
         self.credentials = credentials;
     }
 
-    /// Get the endpoint URL for a service
-    fn get_endpoint(&self, service: &ServiceDefinition) -> String {
-        // If custom endpoint is set, use it for ALL services (LocalStack, etc.)
-        if let Some(ref endpoint) = self.endpoint_url {
-            return endpoint.clone();
-        }
-
-        let region = if service.is_global {
-            "us-east-1"
+    /// Determine which region should be used for a service (handles global services in ESC)
+    fn effective_region<'a>(&'a self, service: &ServiceDefinition) -> &'a str {
+        if service.is_global {
+            if self.region.starts_with(EUSC_PREFIX) {
+                &self.region
+            } else {
+                "us-east-1"
+            }
         } else {
             &self.region
+        }
+    }
+
+    /// Get the endpoint URL for a service, validating partition support when needed
+    fn get_endpoint(&self, service: &ServiceDefinition) -> Result<String> {
+        // If custom endpoint is set, use it for ALL services (LocalStack, etc.)
+        if let Some(ref endpoint) = self.endpoint_url {
+            return Ok(endpoint.clone());
+        }
+
+        let region = self.effective_region(service);
+        let domain = if service.is_global {
+            // Sovereign/global services should mirror the selected region's domain
+            Self::endpoint_domain(&self.region)
+        } else {
+            Self::endpoint_domain(region)
         };
 
         // Special case for S3
         if service.signing_name == "s3" {
-            return format!("https://s3.{}.amazonaws.com", region);
+            return Ok(format!("https://s3.{}.{}", region, domain));
         }
 
         // Special case for global services
         if service.is_global {
-            match service.signing_name {
-                "iam" => return "https://iam.amazonaws.com".to_string(),
-                "route53" => return "https://route53.amazonaws.com".to_string(),
-                "cloudfront" => return "https://cloudfront.amazonaws.com".to_string(),
-                _ => {}
-            }
+            return match service.signing_name {
+                "iam" => {
+                    if domain == "amazonaws.eu" {
+                        Ok(format!("https://iam.{}.{}", self.region, domain))
+                    } else {
+                        Ok("https://iam.amazonaws.com".to_string())
+                    }
+                }
+                "cloudfront" if self.region.starts_with(EUSC_PREFIX) => Err(anyhow!(
+                    "Service 'cloudfront' is not available yet in ESC regions"
+                )),
+                "cloudfront" => Ok(format!("https://cloudfront.{}", domain)),
+                "route53" => Ok(format!("https://route53.{}", domain)),
+                _ => Ok(format!("https://{}.{}", service.endpoint_prefix, domain)),
+            };
         }
 
-        format!("https://{}.{}.amazonaws.com", service.endpoint_prefix, region)
+        Ok(format!(
+            "https://{}.{}.{}",
+            service.endpoint_prefix, region, domain
+        ))
+    }
+
+    /// Determine the endpoint domain for a region (standard vs. sovereign)
+    fn endpoint_domain(region: &str) -> &'static str {
+        if region.starts_with(EUSC_PREFIX) {
+            "amazonaws.eu"
+        } else {
+            "amazonaws.com"
+        }
     }
 
     /// Make a Query protocol request (EC2, IAM, RDS, etc.)
@@ -407,9 +451,9 @@ impl AwsHttpClient {
         let service = get_service(service_name)
             .ok_or_else(|| anyhow!("Unknown service: {}", service_name))?;
 
-        let endpoint = self.get_endpoint(&service);
+        let endpoint = self.get_endpoint(&service)?;
         debug!("Endpoint: {}", endpoint);
-        
+
         // Build query string
         let mut query_params: Vec<(String, String)> = vec![
             ("Action".to_string(), action.to_string()),
@@ -428,7 +472,8 @@ impl AwsHttpClient {
         let url = format!("{}/?{}", endpoint, query_string);
         let body = "";
 
-        self.signed_request(&service, "POST", &url, body, None).await
+        self.signed_request(&service, "POST", &url, body, None)
+            .await
     }
 
     /// Make a JSON protocol request (DynamoDB, ECS, Logs, etc.)
@@ -444,7 +489,7 @@ impl AwsHttpClient {
         let service = get_service(service_name)
             .ok_or_else(|| anyhow!("Unknown service: {}", service_name))?;
 
-        let endpoint = self.get_endpoint(&service);
+        let endpoint = self.get_endpoint(&service)?;
         let url = format!("{}/", endpoint);
         debug!("Endpoint: {}", endpoint);
 
@@ -456,9 +501,13 @@ impl AwsHttpClient {
 
         let mut headers = HashMap::new();
         headers.insert("X-Amz-Target".to_string(), target_header);
-        headers.insert("Content-Type".to_string(), "application/x-amz-json-1.1".to_string());
+        headers.insert(
+            "Content-Type".to_string(),
+            "application/x-amz-json-1.1".to_string(),
+        );
 
-        self.signed_request(&service, "POST", &url, body, Some(headers)).await
+        self.signed_request(&service, "POST", &url, body, Some(headers))
+            .await
     }
 
     /// Make a REST-JSON request (Lambda, API Gateway, EKS, etc.)
@@ -469,13 +518,16 @@ impl AwsHttpClient {
         path: &str,
         body: Option<&str>,
     ) -> Result<String> {
-        debug!("REST-JSON request: service={}, method={}, path={}", service_name, method, path);
+        debug!(
+            "REST-JSON request: service={}, method={}, path={}",
+            service_name, method, path
+        );
         trace!("REST-JSON body: {:?}", body);
 
         let service = get_service(service_name)
             .ok_or_else(|| anyhow!("Unknown service: {}", service_name))?;
 
-        let endpoint = self.get_endpoint(&service);
+        let endpoint = self.get_endpoint(&service)?;
         let url = format!("{}{}", endpoint, path);
         debug!("URL: {}", url);
 
@@ -484,7 +536,8 @@ impl AwsHttpClient {
             headers.insert("Content-Type".to_string(), "application/json".to_string());
         }
 
-        self.signed_request(&service, method, &url, body.unwrap_or(""), Some(headers)).await
+        self.signed_request(&service, method, &url, body.unwrap_or(""), Some(headers))
+            .await
     }
 
     /// Make a REST-XML request (S3, Route53, CloudFront)
@@ -495,16 +548,20 @@ impl AwsHttpClient {
         path: &str,
         body: Option<&str>,
     ) -> Result<String> {
-        debug!("REST-XML request: service={}, method={}, path={}", service_name, method, path);
+        debug!(
+            "REST-XML request: service={}, method={}, path={}",
+            service_name, method, path
+        );
 
         let service = get_service(service_name)
             .ok_or_else(|| anyhow!("Unknown service: {}", service_name))?;
 
-        let endpoint = self.get_endpoint(&service);
+        let endpoint = self.get_endpoint(&service)?;
         let url = format!("{}{}", endpoint, path);
         debug!("URL: {}", url);
 
-        self.signed_request(&service, method, &url, body.unwrap_or(""), None).await
+        self.signed_request(&service, method, &url, body.unwrap_or(""), None)
+            .await
     }
 
     /// Make a REST-XML request to a specific S3 bucket region
@@ -518,65 +575,103 @@ impl AwsHttpClient {
         body: Option<&str>,
         bucket_region: &str,
     ) -> Result<String> {
-        debug!("REST-XML S3 bucket request: bucket={}, region={}, method={}, path={}", 
-               bucket, bucket_region, method, path);
+        debug!(
+            "REST-XML S3 bucket request: bucket={}, region={}, method={}, path={}",
+            bucket, bucket_region, method, path
+        );
 
-        let service = get_service("s3")
-            .ok_or_else(|| anyhow!("Unknown service: s3"))?;
+        let service = get_service("s3").ok_or_else(|| anyhow!("Unknown service: s3"))?;
 
         // Build S3 regional endpoint
-        let endpoint = format!("https://{}.s3.{}.amazonaws.com", bucket, bucket_region);
+        let domain = Self::endpoint_domain(bucket_region);
+        let endpoint = format!("https://{}.s3.{}.{}", bucket, bucket_region, domain);
         let url = format!("{}{}", endpoint, path);
         debug!("URL: {}", url);
 
-        self.signed_request_with_region(&service, method, &url, body.unwrap_or(""), None, bucket_region).await
+        self.signed_request_with_region(
+            &service,
+            method,
+            &url,
+            body.unwrap_or(""),
+            None,
+            bucket_region,
+        )
+        .await
     }
 
     /// Get the region for an S3 bucket using HEAD request to check x-amz-bucket-region header
     pub async fn get_bucket_region(&self, bucket: &str) -> Result<String> {
         debug!("Getting bucket region for: {}", bucket);
-        
+
         // Use HEAD request to any S3 endpoint - AWS returns x-amz-bucket-region header
         // even for 301/400 responses, which tells us the correct region
-        let url = format!("https://{}.s3.amazonaws.com/", bucket);
-        
-        let response = self.http_client
-            .head(&url)
-            .send()
-            .await?;
-        
-        // Check x-amz-bucket-region header (present in both success and redirect responses)
-        if let Some(region) = response.headers().get("x-amz-bucket-region") {
-            if let Ok(region_str) = region.to_str() {
-                debug!("Bucket {} is in region {} (from x-amz-bucket-region header)", bucket, region_str);
-                return Ok(region_str.to_string());
+        let mut domain_candidates = vec!["amazonaws.com"];
+        if self.region.starts_with(EUSC_PREFIX) {
+            domain_candidates.insert(0, "amazonaws.eu");
+        }
+
+        for domain in domain_candidates {
+            let url = format!("https://{}.s3.{}/", bucket, domain);
+            debug!("Probing bucket {} region via {}", bucket, url);
+
+            let response = match self.http_client.head(&url).send().await {
+                Ok(resp) => resp,
+                Err(err) => {
+                    debug!("Bucket region probe failed for {}: {}", url, err);
+                    continue;
+                }
+            };
+
+            // Check x-amz-bucket-region header (present in both success and redirect responses)
+            if let Some(region) = response.headers().get("x-amz-bucket-region") {
+                if let Ok(region_str) = region.to_str() {
+                    debug!(
+                        "Bucket {} is in region {} (from x-amz-bucket-region header)",
+                        bucket, region_str
+                    );
+                    return Ok(region_str.to_string());
+                }
             }
-        }
-        
-        // Fallback: if we got a 200, bucket is accessible from us-east-1
-        if response.status().is_success() {
-            debug!("Bucket {} accessible from us-east-1 (HEAD succeeded)", bucket);
-            return Ok("us-east-1".to_string());
-        }
-        
-        // If we got a redirect, try to parse the region from the Location header or body
-        if response.status() == reqwest::StatusCode::MOVED_PERMANENTLY {
-            // Check Location header for region hint
-            if let Some(location) = response.headers().get("location") {
-                if let Ok(loc_str) = location.to_str() {
-                    // Location might be like: https://bucket.s3.us-west-1.amazonaws.com/
-                    // or https://bucket.s3-us-west-1.amazonaws.com/
-                    if let Some(region) = extract_region_from_s3_url(loc_str) {
-                        debug!("Bucket {} is in region {} (from Location header)", bucket, region);
-                        return Ok(region);
+
+            // Fallback: if we got a 200, bucket is accessible from the probed region
+            if response.status().is_success() {
+                debug!(
+                    "Bucket {} accessible via {} (HEAD succeeded)",
+                    bucket, domain
+                );
+                return Ok(self.region.clone());
+            }
+
+            // If we got a redirect, try to parse the region from the Location header or body
+            if response.status() == reqwest::StatusCode::MOVED_PERMANENTLY {
+                // Check Location header for region hint
+                if let Some(location) = response.headers().get("location") {
+                    if let Ok(loc_str) = location.to_str() {
+                        // Location might be like: https://bucket.s3.us-west-1.amazonaws.com/
+                        // or https://bucket.s3-us-west-1.amazonaws.com/
+                        if let Some(region) = extract_region_from_s3_url(loc_str) {
+                            debug!(
+                                "Bucket {} is in region {} (from Location header)",
+                                bucket, region
+                            );
+                            return Ok(region);
+                        }
                     }
                 }
             }
         }
-        
-        // Default to us-east-1
-        debug!("Bucket {} defaulting to us-east-1", bucket);
-        Ok("us-east-1".to_string())
+
+        // Default to currently selected region for sovereign clouds, otherwise us-east-1
+        if self.region.starts_with(EUSC_PREFIX) {
+            debug!(
+                "Bucket {} defaulting to current region {}",
+                bucket, self.region
+            );
+            Ok(self.region.clone())
+        } else {
+            debug!("Bucket {} defaulting to us-east-1", bucket);
+            Ok("us-east-1".to_string())
+        }
     }
 
     /// Make a signed request
@@ -588,15 +683,13 @@ impl AwsHttpClient {
         body: &str,
         extra_headers: Option<HashMap<String, String>>,
     ) -> Result<String> {
-        let region = if service.is_global {
-            "us-east-1"
-        } else {
-            &self.region
-        };
+        let region = self.effective_region(service);
 
         // Parse URL
         let parsed_url = url::Url::parse(url)?;
-        let host = parsed_url.host_str().ok_or_else(|| anyhow!("Invalid URL"))?;
+        let host = parsed_url
+            .host_str()
+            .ok_or_else(|| anyhow!("Invalid URL"))?;
         let path_and_query = if let Some(query) = parsed_url.query() {
             format!("{}?{}", parsed_url.path(), query)
         } else {
@@ -604,10 +697,8 @@ impl AwsHttpClient {
         };
 
         // Build headers
-        let mut headers = vec![
-            ("host".to_string(), host.to_string()),
-        ];
-        
+        let mut headers = vec![("host".to_string(), host.to_string())];
+
         if let Some(extra) = &extra_headers {
             for (k, v) in extra {
                 headers.push((k.to_lowercase(), v.clone()));
@@ -623,7 +714,7 @@ impl AwsHttpClient {
             "taws",
         );
         let identity: Identity = creds.into();
-        
+
         // Create signing params
         let signing_params = SigningParams::builder()
             .identity(&identity)
@@ -636,7 +727,9 @@ impl AwsHttpClient {
 
         // Create signable request
         // For S3, use UnsignedPayload for GET/DELETE requests without body
-        let is_s3_unsigned = service.signing_name == "s3" && body.is_empty() && (method == "GET" || method == "DELETE");
+        let is_s3_unsigned = service.signing_name == "s3"
+            && body.is_empty()
+            && (method == "GET" || method == "DELETE");
         let signable_body = if is_s3_unsigned {
             SignableBody::UnsignedPayload
         } else if body.is_empty() {
@@ -644,10 +737,13 @@ impl AwsHttpClient {
         } else {
             SignableBody::Bytes(body.as_bytes())
         };
-        
+
         // S3 requires x-amz-content-sha256 header
         if is_s3_unsigned {
-            headers.push(("x-amz-content-sha256".to_string(), "UNSIGNED-PAYLOAD".to_string()));
+            headers.push((
+                "x-amz-content-sha256".to_string(),
+                "UNSIGNED-PAYLOAD".to_string(),
+            ));
         }
 
         let signable_request = SignableRequest::new(
@@ -658,7 +754,8 @@ impl AwsHttpClient {
         )?;
 
         // Sign the request
-        let (signing_instructions, _signature) = sign(signable_request, &signing_params)?.into_parts();
+        let (signing_instructions, _signature) =
+            sign(signable_request, &signing_params)?.into_parts();
 
         // Build the actual request
         let mut request = match method {
@@ -674,7 +771,7 @@ impl AwsHttpClient {
         for (name, value) in signing_instructions.headers() {
             request = request.header(name.to_string(), value.to_string());
         }
-        
+
         // S3 requires x-amz-content-sha256 header explicitly
         if is_s3_unsigned {
             request = request.header("x-amz-content-sha256", "UNSIGNED-PAYLOAD");
@@ -699,10 +796,17 @@ impl AwsHttpClient {
         let text = response.text().await?;
 
         debug!("Response status: {}", status);
-        trace!("Response body (first 2000 chars): {}", &text[..text.len().min(2000)]);
+        trace!(
+            "Response body (first 2000 chars): {}",
+            &text[..text.len().min(2000)]
+        );
 
         if !status.is_success() {
-            warn!("AWS request failed: status={}, body={}", status, &text[..text.len().min(500)]);
+            warn!(
+                "AWS request failed: status={}, body={}",
+                status,
+                &text[..text.len().min(500)]
+            );
             return Err(anyhow!("AWS request failed ({}): {}", status, text));
         }
 
@@ -722,7 +826,9 @@ impl AwsHttpClient {
     ) -> Result<String> {
         // Parse URL
         let parsed_url = url::Url::parse(url)?;
-        let host = parsed_url.host_str().ok_or_else(|| anyhow!("Invalid URL"))?;
+        let host = parsed_url
+            .host_str()
+            .ok_or_else(|| anyhow!("Invalid URL"))?;
         let path_and_query = if let Some(query) = parsed_url.query() {
             format!("{}?{}", parsed_url.path(), query)
         } else {
@@ -730,10 +836,8 @@ impl AwsHttpClient {
         };
 
         // Build headers
-        let mut headers = vec![
-            ("host".to_string(), host.to_string()),
-        ];
-        
+        let mut headers = vec![("host".to_string(), host.to_string())];
+
         if let Some(extra) = &extra_headers {
             for (k, v) in extra {
                 headers.push((k.to_lowercase(), v.clone()));
@@ -749,7 +853,7 @@ impl AwsHttpClient {
             "taws",
         );
         let identity: Identity = creds.into();
-        
+
         // Create signing params with explicit region
         let signing_params = SigningParams::builder()
             .identity(&identity)
@@ -761,7 +865,9 @@ impl AwsHttpClient {
             .into();
 
         // Create signable request
-        let is_s3_unsigned = service.signing_name == "s3" && body.is_empty() && (method == "GET" || method == "DELETE");
+        let is_s3_unsigned = service.signing_name == "s3"
+            && body.is_empty()
+            && (method == "GET" || method == "DELETE");
         let signable_body = if is_s3_unsigned {
             SignableBody::UnsignedPayload
         } else if body.is_empty() {
@@ -769,9 +875,12 @@ impl AwsHttpClient {
         } else {
             SignableBody::Bytes(body.as_bytes())
         };
-        
+
         if is_s3_unsigned {
-            headers.push(("x-amz-content-sha256".to_string(), "UNSIGNED-PAYLOAD".to_string()));
+            headers.push((
+                "x-amz-content-sha256".to_string(),
+                "UNSIGNED-PAYLOAD".to_string(),
+            ));
         }
 
         let signable_request = SignableRequest::new(
@@ -782,7 +891,8 @@ impl AwsHttpClient {
         )?;
 
         // Sign the request
-        let (signing_instructions, _signature) = sign(signable_request, &signing_params)?.into_parts();
+        let (signing_instructions, _signature) =
+            sign(signable_request, &signing_params)?.into_parts();
 
         // Build the actual request
         let mut request = match method {
@@ -798,7 +908,7 @@ impl AwsHttpClient {
         for (name, value) in signing_instructions.headers() {
             request = request.header(name.to_string(), value.to_string());
         }
-        
+
         if is_s3_unsigned {
             request = request.header("x-amz-content-sha256", "UNSIGNED-PAYLOAD");
         }
@@ -822,10 +932,17 @@ impl AwsHttpClient {
         let text = response.text().await?;
 
         debug!("Response status: {}", status);
-        trace!("Response body (first 2000 chars): {}", &text[..text.len().min(2000)]);
+        trace!(
+            "Response body (first 2000 chars): {}",
+            &text[..text.len().min(2000)]
+        );
 
         if !status.is_success() {
-            warn!("AWS request failed: status={}, body={}", status, &text[..text.len().min(500)]);
+            warn!(
+                "AWS request failed: status={}, body={}",
+                status,
+                &text[..text.len().min(500)]
+            );
             return Err(anyhow!("AWS request failed ({}): {}", status, text));
         }
 
@@ -838,7 +955,6 @@ pub fn xml_to_json(xml: &str) -> Result<serde_json::Value> {
     use quick_xml::events::Event;
     use quick_xml::Reader;
     use serde_json::{Map, Value};
-
     fn parse_element(reader: &mut Reader<&[u8]>) -> Result<Value> {
         let mut map: Map<String, Value> = Map::new();
         let mut buf = Vec::new();
@@ -864,7 +980,7 @@ pub fn xml_to_json(xml: &str) -> Result<serde_json::Value> {
                     }
                 }
                 Ok(Event::Text(e)) => {
-                    let text = e.unescape().unwrap_or_default().trim().to_string();
+                    let text = e.xml_content().unwrap_or_default().trim().to_string();
                     if !text.is_empty() {
                         current_text = text;
                     }
@@ -912,4 +1028,74 @@ pub fn xml_to_json(xml: &str) -> Result<serde_json::Value> {
     }
 
     Ok(Value::Object(root_map))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{get_service, AwsHttpClient, Credentials};
+
+    fn dummy_credentials() -> Credentials {
+        Credentials {
+            access_key_id: "TESTACCESSKEY".to_string(),
+            secret_access_key: "TESTSECRETKEY".to_string(),
+            session_token: None,
+        }
+    }
+
+    fn client_with_region(region: &str) -> AwsHttpClient {
+        AwsHttpClient::new(dummy_credentials(), region, None)
+    }
+
+    #[test]
+    fn route53_uses_partition_domain_in_esc() {
+        let client = client_with_region("eusc-de-east-1");
+        let service = get_service("route53").expect("route53 service definition");
+        let endpoint = client.get_endpoint(&service).expect("route53 endpoint");
+        assert_eq!(endpoint, "https://route53.amazonaws.eu");
+    }
+
+    #[test]
+    fn route53_uses_standard_domain_elsewhere() {
+        let client = client_with_region("us-west-2");
+        let service = get_service("route53").expect("route53 service definition");
+        let endpoint = client.get_endpoint(&service).expect("route53 endpoint");
+        assert_eq!(endpoint, "https://route53.amazonaws.com");
+    }
+
+    #[test]
+    fn iam_includes_region_for_esc() {
+        let client = client_with_region("eusc-de-east-1");
+        let service = get_service("iam").expect("iam service definition");
+        let endpoint = client.get_endpoint(&service).expect("iam endpoint");
+        assert_eq!(endpoint, "https://iam.eusc-de-east-1.amazonaws.eu");
+    }
+
+    #[test]
+    fn iam_uses_classic_endpoint_for_standard_regions() {
+        let client = client_with_region("us-west-2");
+        let service = get_service("iam").expect("iam service definition");
+        let endpoint = client.get_endpoint(&service).expect("iam endpoint");
+        assert_eq!(endpoint, "https://iam.amazonaws.com");
+    }
+
+    #[test]
+    fn cloudfront_returns_not_available_error_in_esc() {
+        let client = client_with_region("eusc-de-east-1");
+        let service = get_service("cloudfront").expect("cloudfront service definition");
+        let err = client
+            .get_endpoint(&service)
+            .expect_err("cloudfront should error in esc");
+        assert_eq!(
+            err.to_string(),
+            "Service 'cloudfront' is not available yet in ESC regions"
+        );
+    }
+
+    #[test]
+    fn cloudfront_works_in_standard_regions() {
+        let client = client_with_region("us-east-1");
+        let service = get_service("cloudfront").expect("cloudfront service definition");
+        let endpoint = client.get_endpoint(&service).expect("cloudfront endpoint");
+        assert_eq!(endpoint, "https://cloudfront.amazonaws.com");
+    }
 }

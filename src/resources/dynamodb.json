@@ -15,7 +15,30 @@
       "sub_resources": [],
       "actions": [
         { "key": "ctrl+d", "display_name": "Delete Table", "shortcut": "ctrl+d", "sdk_method": "delete_table", "confirm": { "message": "Delete DynamoDB table", "default_yes": false, "destructive": true } }
-      ]
+      ],
+
+      "api_config": {
+        "protocol": "json",
+        "action": "ListTables",
+        "response_root": "/TableNames"
+      },
+      "field_mappings": {
+        "TableName": { "source": "" }
+      },
+      "action_configs": {
+        "delete_table": {
+          "action_id": "delete_table",
+          "protocol": "json",
+          "action": "DeleteTable",
+          "body_template": "{\"TableName\": \"{resource_id}\"}"
+        }
+      },
+      "describe_config": {
+        "protocol": "json",
+        "action": "DescribeTable",
+        "body_template": "{\"TableName\": \"{resource_id}\"}",
+        "response_path": "/Table"
+      }
     }
   }
 }

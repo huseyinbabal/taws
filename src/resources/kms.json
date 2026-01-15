@@ -3,7 +3,7 @@
     "kms-keys": {
       "display_name": "KMS Keys",
       "service": "kms",
-      "sdk_method": "list_keys_with_details",
+      "sdk_method": "list_keys",
       "sdk_method_params": {},
       "response_path": "keys",
       "id_field": "KeyId",
@@ -11,12 +11,31 @@
       "is_global": false,
       "columns": [
         { "header": "KEY ID", "json_path": "KeyId", "width": 40 },
-        { "header": "STATE", "json_path": "KeyState", "width": 15, "color_map": "state" },
-        { "header": "USAGE", "json_path": "KeyUsage", "width": 20 },
-        { "header": "SPEC", "json_path": "KeySpec", "width": 20 }
+        { "header": "KEY ARN", "json_path": "KeyArn", "width": 60 }
       ],
       "sub_resources": [],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "json",
+        "action": "ListKeys",
+        "response_root": "/Keys",
+        "pagination": {
+          "input_token": "Marker",
+          "output_token": "/NextMarker",
+          "max_results_param": "Limit",
+          "max_results": 100
+        }
+      },
+      "field_mappings": {
+        "KeyId": { "source": "/KeyId", "default": "-" },
+        "KeyArn": { "source": "/KeyArn", "default": "-" }
+      },
+      "describe_config": {
+        "protocol": "json",
+        "action": "DescribeKey",
+        "body_template": "{\"KeyId\": \"{resource_id}\"}",
+        "response_path": "/KeyMetadata"
+      }
     }
   }
 }

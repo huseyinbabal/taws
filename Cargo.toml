@@ -1,6 +1,6 @@
 [package]
 name = "taws"
-version = "1.1.3"
+version = "1.1.7"
 edition = "2021"
 description = "Terminal UI for AWS - navigate, observe, and manage AWS resources"
 license = "MIT"
@@ -35,7 +35,7 @@ serde_json = "1.0"
 serde_yaml = "0.9"
 
 # XML parsing (for EC2, IAM, RDS Query protocol APIs)
-quick-xml = { version = "0.37", features = ["serialize"] }
+quick-xml = { version = "0.38", features = ["serialize"] }
 
 # CLI argument parsing
 clap = { version = "4.5", features = ["derive"] }
@@ -47,11 +47,13 @@ tracing-appender = "0.2"
 
 # Utils
 anyhow = "1.0"
-thiserror = "1.0"
+thiserror = "2.0"
 dirs = "6.0"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 sha1 = "0.10"
 open = "5.3"
+fuzzy-matcher = "0.3.7"
+async-trait = "0.1.89"
 
 [dev-dependencies]
 dirs = "6.0"

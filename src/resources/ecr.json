@@ -15,7 +15,18 @@
         { "header": "CREATED", "json_path": "createdAt", "width": 25 }
       ],
       "sub_resources": [],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "json",
+        "action": "DescribeRepositories",
+        "response_root": "/repositories"
+      },
+      "field_mappings": {
+        "repositoryName": { "source": "/repositoryName", "default": "-" },
+        "repositoryArn": { "source": "/repositoryArn", "default": "-" },
+        "repositoryUri": { "source": "/repositoryUri", "default": "-" },
+        "createdAt": { "source": "/createdAt", "default": "-" }
+      }
     }
   }
 }

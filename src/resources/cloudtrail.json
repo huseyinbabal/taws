@@ -16,7 +16,19 @@
         { "header": "LOG VALIDATION", "json_path": "LogFileValidationEnabled", "width": 15 }
       ],
       "sub_resources": [],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "json",
+        "action": "DescribeTrails",
+        "response_root": "/trailList"
+      },
+      "field_mappings": {
+        "Name": { "source": "/Name", "default": "-" },
+        "TrailARN": { "source": "/TrailARN", "default": "-" },
+        "S3BucketName": { "source": "/S3BucketName", "default": "-" },
+        "IsMultiRegionTrail": { "source": "/IsMultiRegionTrail", "transform": "bool_to_yes_no" },
+        "LogFileValidationEnabled": { "source": "/LogFileValidationEnabled", "transform": "bool_to_yes_no" }
+      }
     }
   }
 }

@@ -8,6 +8,8 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
+use super::protocol::{ActionConfig, ApiConfig, DescribeConfig, FieldMapping};
+
 /// Embedded resource JSON files (compiled into the binary)
 const RESOURCE_FILES: &[&str] = &[
     include_str!("../resources/acm.json"),
@@ -134,6 +136,8 @@ impl ActionDef {
 pub struct ResourceDef {
     pub display_name: String,
     pub service: String,
+    /// Legacy: SDK method name (used by old sdk_dispatch.rs)
+    /// New resources should use api_config instead
     pub sdk_method: String,
     #[serde(default)]
     pub sdk_method_params: Value,
@@ -153,6 +157,34 @@ pub struct ResourceDef {
     /// Parameters for detail_sdk_method (maps param name -> field from resource)
     #[serde(default)]
     pub detail_sdk_method_params: Value,
+
+    // === NEW DATA-DRIVEN FIELDS ===
+    /// API configuration for data-driven dispatch (list operations)
+    /// If present, this takes precedence over sdk_method for fetching
+    #[serde(default)]
+    pub api_config: Option<ApiConfig>,
+
+    /// Field mappings from raw API response to normalized output
+    /// If present, these are used to transform API responses
+    #[serde(default)]
+    pub field_mappings: HashMap<String, FieldMapping>,
+
+    /// Data-driven action configurations
+    /// Maps action_id (e.g., "start_instance") to its API config
+    #[serde(default)]
+    pub action_configs: HashMap<String, ActionConfig>,
+
+    /// Data-driven describe configuration
+    /// For fetching single resource details
+    #[serde(default)]
+    pub describe_config: Option<DescribeConfig>,
+}
+
+impl ResourceDef {
+    /// Check if this resource has API config for list operations
+    pub fn has_api_config(&self) -> bool {
+        self.api_config.is_some() && !self.field_mappings.is_empty()
+    }
 }
 
 /// Root structure of resources/*.json

@@ -16,7 +16,22 @@
         { "header": "CREATED", "json_path": "CreationDate", "width": 25 }
       ],
       "sub_resources": [],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "json",
+        "service_name": "cognito-idp",
+        "action": "ListUserPools",
+        "response_root": "/UserPools",
+        "static_params": {
+          "MaxResults": 60
+        }
+      },
+      "field_mappings": {
+        "Id": { "source": "/Id", "default": "-" },
+        "Name": { "source": "/Name", "default": "-" },
+        "Status": { "source": "/Status", "default": "-" },
+        "CreationDate": { "source": "/CreationDate", "default": "-" }
+      }
     }
   }
 }

@@ -16,7 +16,18 @@
         { "header": "UPDATED", "json_path": "updated", "width": 25 }
       ],
       "sub_resources": [],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "json",
+        "action": "ListPipelines",
+        "response_root": "/pipelines"
+      },
+      "field_mappings": {
+        "name": { "source": "/name", "default": "-" },
+        "version": { "source": "/version", "default": "0" },
+        "created": { "source": "/created", "default": "-" },
+        "updated": { "source": "/updated", "default": "-" }
+      }
     }
   }
 }

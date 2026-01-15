@@ -18,7 +18,25 @@
       ],
       "actions": [
         { "key": "ctrl+d", "display_name": "Delete Bucket", "shortcut": "ctrl+d", "sdk_method": "delete_bucket", "confirm": { "message": "Delete S3 bucket", "default_yes": false, "destructive": true } }
-      ]
+      ],
+      "api_config": {
+        "protocol": "rest-xml",
+        "method": "GET",
+        "path": "/",
+        "response_root": "/ListAllMyBucketsResult/Buckets/Bucket"
+      },
+      "field_mappings": {
+        "Name": { "source": "/Name", "default": "-" },
+        "CreationDate": { "source": "/CreationDate", "default": "-" }
+      },
+      "action_configs": {
+        "delete_bucket": {
+          "action_id": "delete_bucket",
+          "protocol": "rest-xml",
+          "method": "DELETE",
+          "path": "/{resource_id}"
+        }
+      }
     },
     "s3-objects": {
       "display_name": "S3 Objects",

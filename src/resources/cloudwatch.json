@@ -24,7 +24,20 @@
           "filter_param": "log_group_name"
         }
       ],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "json",
+        "service_name": "logs",
+        "action": "DescribeLogGroups",
+        "response_root": "/logGroups"
+      },
+      "field_mappings": {
+        "logGroupName": { "source": "/logGroupName", "default": "-" },
+        "logGroupArn": { "source": "/arn", "default": "-" },
+        "storedBytes": { "source": "/storedBytes", "default": "0" },
+        "retentionInDays": { "source": "/retentionInDays", "default": "Never" },
+        "creationTime": { "source": "/creationTime", "default": "-" }
+      }
     },
     "cloudwatch-log-streams": {
       "display_name": "Log Streams",
@@ -49,7 +62,33 @@
           "shortcut": "t",
           "sdk_method": "tail_logs"
         }
-      ]
+      ],
+      "api_config": {
+        "protocol": "json",
+        "service_name": "logs",
+        "action": "DescribeLogStreams",
+        "response_root": "/logStreams",
+        "static_params": {
+          "orderBy": "LastEventTime",
+          "descending": true
+        },
+        "param_mapping": {
+          "log_group_name": "logGroupName"
+        },
+        "pagination": {
+          "input_token": "nextToken",
+          "output_token": "/nextToken",
+          "max_results_param": "limit",
+          "max_results": 50
+        }
+      },
+      "field_mappings": {
+        "logStreamName": { "source": "/logStreamName", "default": "-" },
+        "lastEventTime": { "source": "/lastEventTimestamp", "transform": "format_epoch_millis", "default": "-" },
+        "firstEventTime": { "source": "/firstEventTimestamp", "transform": "format_epoch_millis", "default": "-" },
+        "storedBytes": { "source": "/storedBytes", "transform": "format_bytes", "default": "0" },
+        "lastEventTimestamp": { "source": "/lastEventTimestamp", "default": "0" }
+      }
     }
   }
 }

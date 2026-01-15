@@ -2,9 +2,12 @@
 //!
 //! This module provides a single generic function to fetch any AWS resource.
 //! All the logic is driven by the resources.json configuration.
+//!
+//! Resources with `api_config` defined will use data-driven dispatch,
+//! while legacy resources (S3 objects, STS) use the legacy invoke_sdk.
 
+use super::dispatch::{invoke_list, invoke_sdk};
 use super::registry::get_resource;
-use super::sdk_dispatch::invoke_sdk;
 use crate::aws::client::AwsClients;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
@@ -37,6 +40,9 @@ pub struct PaginatedResult {
 /// This is the SINGLE entry point for fetching any AWS resource.
 /// It looks up the resource definition from JSON and uses the SDK dispatcher.
 ///
+/// Resources with `api_config` will use the new data-driven dispatch,
+/// while legacy resources use the old sdk_dispatch.
+///
 /// # Arguments
 /// * `resource_key` - The resource key (e.g., "iam-users", "iam-roles")
 /// * `clients` - AWS clients container
@@ -50,43 +56,52 @@ pub async fn fetch_resources(
     filters: &[ResourceFilter],
 ) -> Result<Vec<Value>> {
     // 1. Look up resource definition from JSON
-    let resource_def = get_resource(resource_key)
-        .ok_or_else(|| anyhow!("Unknown resource: {}", resource_key))?;
+    let resource_def =
+        get_resource(resource_key).ok_or_else(|| anyhow!("Unknown resource: {}", resource_key))?;
 
     // 2. Build params (merge default params with filters)
     let mut params = resource_def.sdk_method_params.clone();
-    
+
     // Add filters to params if any
     if !filters.is_empty() {
         if let Value::Object(ref mut map) = params {
             for filter in filters {
-                map.insert(filter.name.clone(), Value::Array(
-                    filter.values.iter().map(|v| Value::String(v.clone())).collect()
-                ));
+                map.insert(
+                    filter.name.clone(),
+                    Value::Array(
+                        filter
+                            .values
+                            .iter()
+                            .map(|v| Value::String(v.clone()))
+                            .collect(),
+                    ),
+                );
             }
         }
     }
 
-    // 3. Call SDK dispatcher
-    let response = invoke_sdk(
-        &resource_def.service,
-        &resource_def.sdk_method,
-        clients,
-        &params,
-    ).await?;
+    // 3. Call SDK dispatcher - use new data-driven dispatch if api_config is defined
+    let response = if resource_def.has_api_config() {
+        invoke_list(resource_key, clients, &params).await?
+    } else {
+        // Legacy path: use old sdk_dispatch
+        invoke_sdk(
+            &resource_def.service,
+            &resource_def.sdk_method,
+            clients,
+            &params,
+        )
+        .await?
+    };
 
     // 4. Extract items using response_path
     let mut items = extract_items(&response, &resource_def.response_path)?;
-    
+
     // 5. Sort items by name_field for consistent ordering
     let sort_field = &resource_def.name_field;
     items.sort_by(|a, b| {
-        let a_val = a.get(sort_field)
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let b_val = b.get(sort_field)
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let a_val = a.get(sort_field).and_then(|v| v.as_str()).unwrap_or("");
+        let b_val = b.get(sort_field).and_then(|v| v.as_str()).unwrap_or("");
         a_val.cmp(b_val)
     });
 
@@ -94,8 +109,11 @@ pub async fn fetch_resources(
 }
 
 /// Fetch resources with pagination support
-/// 
+///
 /// Returns items for the current page and the next_token for fetching more
+///
+/// Resources with `api_config` will use the new data-driven dispatch,
+/// while legacy resources use the old sdk_dispatch.
 pub async fn fetch_resources_paginated(
     resource_key: &str,
     clients: &AwsClients,
@@ -103,23 +121,30 @@ pub async fn fetch_resources_paginated(
     page_token: Option<&str>,
 ) -> Result<PaginatedResult> {
     // 1. Look up resource definition from JSON
-    let resource_def = get_resource(resource_key)
-        .ok_or_else(|| anyhow!("Unknown resource: {}", resource_key))?;
+    let resource_def =
+        get_resource(resource_key).ok_or_else(|| anyhow!("Unknown resource: {}", resource_key))?;
 
     // 2. Build params (merge default params with filters)
     let mut params = resource_def.sdk_method_params.clone();
-    
+
     // Add filters to params if any
     if !filters.is_empty() {
         if let Value::Object(ref mut map) = params {
             for filter in filters {
-                map.insert(filter.name.clone(), Value::Array(
-                    filter.values.iter().map(|v| Value::String(v.clone())).collect()
-                ));
+                map.insert(
+                    filter.name.clone(),
+                    Value::Array(
+                        filter
+                            .values
+                            .iter()
+                            .map(|v| Value::String(v.clone()))
+                            .collect(),
+                    ),
+                );
             }
         }
     }
-    
+
     // Add pagination token if provided
     if let Some(token) = page_token {
         if let Value::Object(ref mut map) = params {
@@ -127,31 +152,34 @@ pub async fn fetch_resources_paginated(
         }
     }
 
-    // 3. Call SDK dispatcher
-    let response = invoke_sdk(
-        &resource_def.service,
-        &resource_def.sdk_method,
-        clients,
-        &params,
-    ).await?;
+    // 3. Call SDK dispatcher - use new data-driven dispatch if api_config is defined
+    let response = if resource_def.has_api_config() {
+        invoke_list(resource_key, clients, &params).await?
+    } else {
+        // Legacy path: use old sdk_dispatch
+        invoke_sdk(
+            &resource_def.service,
+            &resource_def.sdk_method,
+            clients,
+            &params,
+        )
+        .await?
+    };
 
     // 4. Extract items using response_path
     let mut items = extract_items(&response, &resource_def.response_path)?;
-    
+
     // 5. Sort items by name_field (or id_field) for consistent ordering
     let sort_field = &resource_def.name_field;
     items.sort_by(|a, b| {
-        let a_val = a.get(sort_field)
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        let b_val = b.get(sort_field)
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let a_val = a.get(sort_field).and_then(|v| v.as_str()).unwrap_or("");
+        let b_val = b.get(sort_field).and_then(|v| v.as_str()).unwrap_or("");
         a_val.cmp(b_val)
     });
-    
+
     // 6. Extract next_token from response (if present)
-    let next_token = response.get("_next_token")
+    let next_token = response
+        .get("_next_token")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
@@ -163,7 +191,7 @@ fn extract_items(response: &Value, path: &str) -> Result<Vec<Value>> {
     // Simple path extraction (e.g., "users", "roles")
     // For nested paths, split by '.' and traverse
     let parts: Vec<&str> = path.split('.').collect();
-    
+
     let mut current = response.clone();
     for part in parts {
         current = current
@@ -175,7 +203,11 @@ fn extract_items(response: &Value, path: &str) -> Result<Vec<Value>> {
     // Expect an array
     match current {
         Value::Array(arr) => Ok(arr),
-        _ => Err(anyhow!("Expected array at path '{}', got {:?}", path, current)),
+        _ => Err(anyhow!(
+            "Expected array at path '{}', got {:?}",
+            path,
+            current
+        )),
     }
 }
 

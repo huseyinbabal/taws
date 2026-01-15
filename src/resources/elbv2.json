@@ -23,7 +23,36 @@
       ],
       "actions": [
         { "key": "ctrl+d", "display_name": "Delete Load Balancer", "shortcut": "ctrl+d", "sdk_method": "delete_load_balancer", "confirm": { "message": "Delete load balancer", "default_yes": false, "destructive": true } }
-      ]
+      ],
+      "api_config": {
+        "protocol": "query",
+        "action": "DescribeLoadBalancers",
+        "response_root": "/DescribeLoadBalancersResponse/DescribeLoadBalancersResult/LoadBalancers/member"
+      },
+      "field_mappings": {
+        "LoadBalancerArn": { "source": "/LoadBalancerArn", "default": "-" },
+        "LoadBalancerName": { "source": "/LoadBalancerName", "default": "-" },
+        "DNSName": { "source": "/DNSName", "default": "-" },
+        "Type": { "source": "/Type", "default": "-" },
+        "Scheme": { "source": "/Scheme", "default": "-" },
+        "State": { "source": "/State/Code", "default": "-" },
+        "VpcId": { "source": "/VpcId", "default": "-" },
+        "CreatedTime": { "source": "/CreatedTime", "default": "-" }
+      },
+      "action_configs": {
+        "delete_load_balancer": {
+          "action_id": "delete_load_balancer",
+          "protocol": "query",
+          "action": "DeleteLoadBalancer",
+          "id_param": "LoadBalancerArn"
+        }
+      },
+      "describe_config": {
+        "protocol": "query",
+        "action": "DescribeLoadBalancers",
+        "id_param": "LoadBalancerArns.member.1",
+        "response_path": "/DescribeLoadBalancersResponse/DescribeLoadBalancersResult/LoadBalancers/member"
+      }
     },
     "elbv2-listeners": {
       "display_name": "Listeners",
@@ -46,7 +75,31 @@
       ],
       "actions": [
         { "key": "ctrl+d", "display_name": "Delete Listener", "shortcut": "ctrl+d", "sdk_method": "delete_listener", "confirm": { "message": "Delete listener", "default_yes": false, "destructive": true } }
-      ]
+      ],
+      "api_config": {
+        "protocol": "query",
+        "action": "DescribeListeners",
+        "response_root": "/DescribeListenersResponse/DescribeListenersResult/Listeners/member",
+        "param_mapping": {
+          "load_balancer_arn": "LoadBalancerArn"
+        }
+      },
+      "field_mappings": {
+        "ListenerArn": { "source": "/ListenerArn", "default": "-" },
+        "LoadBalancerArn": { "source": "/LoadBalancerArn", "default": "-" },
+        "Port": { "source": "/Port", "default": "-" },
+        "Protocol": { "source": "/Protocol", "default": "-" },
+        "SslPolicy": { "source": "/SslPolicy", "default": "-" },
+        "DefaultActionType": { "source": "/DefaultActions/member/Type", "transform": "first_item", "default": "-" }
+      },
+      "action_configs": {
+        "delete_listener": {
+          "action_id": "delete_listener",
+          "protocol": "query",
+          "action": "DeleteListener",
+          "id_param": "ListenerArn"
+        }
+      }
     },
     "elbv2-rules": {
       "display_name": "Rules",
@@ -67,7 +120,31 @@
       "sub_resources": [],
       "actions": [
         { "key": "ctrl+d", "display_name": "Delete Rule", "shortcut": "ctrl+d", "sdk_method": "delete_rule", "confirm": { "message": "Delete rule", "default_yes": false, "destructive": true } }
-      ]
+      ],
+      "api_config": {
+        "protocol": "query",
+        "action": "DescribeRules",
+        "response_root": "/DescribeRulesResponse/DescribeRulesResult/Rules/member",
+        "param_mapping": {
+          "listener_arn": "ListenerArn"
+        }
+      },
+      "field_mappings": {
+        "RuleArn": { "source": "/RuleArn", "default": "-" },
+        "Priority": { "source": "/Priority", "default": "-" },
+        "IsDefault": { "source": "/IsDefault", "transform": "bool_to_yes_no" },
+        "ConditionsSummary": { "source": "/Conditions/member/Field", "transform": "array_to_csv", "default": "-" },
+        "ActionType": { "source": "/Actions/member/Type", "transform": "first_item", "default": "-" },
+        "TargetGroupArn": { "source": "/Actions/member/TargetGroupArn", "transform": "first_item", "default": "-" }
+      },
+      "action_configs": {
+        "delete_rule": {
+          "action_id": "delete_rule",
+          "protocol": "query",
+          "action": "DeleteRule",
+          "id_param": "RuleArn"
+        }
+      }
     },
     "elbv2-target-groups": {
       "display_name": "Target Groups",
@@ -91,7 +168,38 @@
       ],
       "actions": [
         { "key": "ctrl+d", "display_name": "Delete Target Group", "shortcut": "ctrl+d", "sdk_method": "delete_target_group", "confirm": { "message": "Delete target group", "default_yes": false, "destructive": true } }
-      ]
+      ],
+      "api_config": {
+        "protocol": "query",
+        "action": "DescribeTargetGroups",
+        "response_root": "/DescribeTargetGroupsResponse/DescribeTargetGroupsResult/TargetGroups/member",
+        "param_mapping": {
+          "load_balancer_arn": "LoadBalancerArn"
+        }
+      },
+      "field_mappings": {
+        "TargetGroupArn": { "source": "/TargetGroupArn", "default": "-" },
+        "TargetGroupName": { "source": "/TargetGroupName", "default": "-" },
+        "Protocol": { "source": "/Protocol", "default": "-" },
+        "Port": { "source": "/Port", "default": "-" },
+        "TargetType": { "source": "/TargetType", "default": "-" },
+        "VpcId": { "source": "/VpcId", "default": "-" },
+        "HealthCheckPath": { "source": "/HealthCheckPath", "default": "-" }
+      },
+      "action_configs": {
+        "delete_target_group": {
+          "action_id": "delete_target_group",
+          "protocol": "query",
+          "action": "DeleteTargetGroup",
+          "id_param": "TargetGroupArn"
+        }
+      },
+      "describe_config": {
+        "protocol": "query",
+        "action": "DescribeTargetGroups",
+        "id_param": "TargetGroupArns.member.1",
+        "response_path": "/DescribeTargetGroupsResponse/DescribeTargetGroupsResult/TargetGroups/member"
+      }
     },
     "elbv2-targets": {
       "display_name": "Targets",
@@ -113,7 +221,31 @@
       "sub_resources": [],
       "actions": [
         { "key": "d", "display_name": "Deregister Target", "shortcut": "d", "sdk_method": "deregister_targets", "confirm": { "message": "Deregister target from target group", "default_yes": false } }
-      ]
+      ],
+      "api_config": {
+        "protocol": "query",
+        "action": "DescribeTargetHealth",
+        "response_root": "/DescribeTargetHealthResponse/DescribeTargetHealthResult/TargetHealthDescriptions/member",
+        "param_mapping": {
+          "target_group_arn": "TargetGroupArn"
+        }
+      },
+      "field_mappings": {
+        "TargetId": { "source": "/Target/Id", "default": "-" },
+        "Port": { "source": "/Target/Port", "default": "-" },
+        "AvailabilityZone": { "source": "/Target/AvailabilityZone", "default": "-" },
+        "HealthState": { "source": "/TargetHealth/State", "default": "-" },
+        "HealthReason": { "source": "/TargetHealth/Reason", "default": "-" },
+        "HealthDescription": { "source": "/TargetHealth/Description", "default": "-" }
+      },
+      "action_configs": {
+        "deregister_targets": {
+          "action_id": "deregister_targets",
+          "protocol": "query",
+          "action": "DeregisterTargets",
+          "special_handling": "parse_pipe_format_tg_target"
+        }
+      }
     }
   },
   "color_maps": {

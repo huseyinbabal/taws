@@ -20,7 +20,25 @@
         { "shortcut": "g", "display_name": "Groups", "resource_key": "iam-user-groups", "parent_id_field": "UserName", "filter_param": "user_name" },
         { "shortcut": "a", "display_name": "Access Keys", "resource_key": "iam-access-keys", "parent_id_field": "UserName", "filter_param": "user_name" }
       ],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "query",
+        "action": "ListUsers",
+        "response_root": "/ListUsersResponse/ListUsersResult/Users/member"
+      },
+      "field_mappings": {
+        "UserId": { "source": "/UserId", "default": "-" },
+        "UserName": { "source": "/UserName", "default": "-" },
+        "Arn": { "source": "/Arn", "default": "-" },
+        "Path": { "source": "/Path", "default": "/" },
+        "CreateDate": { "source": "/CreateDate", "default": "-" }
+      },
+      "describe_config": {
+        "protocol": "query",
+        "action": "GetUser",
+        "id_param": "UserName",
+        "response_path": "/GetUserResponse/GetUserResult/User"
+      }
     },
     "iam-user-policies": {
       "display_name": "IAM User Policies",
@@ -36,7 +54,19 @@
         { "header": "ARN", "json_path": "PolicyArn", "width": 34 }
       ],
       "sub_resources": [],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "query",
+        "action": "ListAttachedUserPolicies",
+        "response_root": "/ListAttachedUserPoliciesResponse/ListAttachedUserPoliciesResult/AttachedPolicies/member",
+        "param_mapping": {
+          "user_name": "UserName"
+        }
+      },
+      "field_mappings": {
+        "PolicyName": { "source": "/PolicyName", "default": "-" },
+        "PolicyArn": { "source": "/PolicyArn", "default": "-" }
+      }
     },
     "iam-user-groups": {
       "display_name": "IAM User Groups",
@@ -53,7 +83,20 @@
         { "header": "ARN", "json_path": "Arn", "width": 34 }
       ],
       "sub_resources": [],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "query",
+        "action": "ListGroupsForUser",
+        "response_root": "/ListGroupsForUserResponse/ListGroupsForUserResult/Groups/member",
+        "param_mapping": {
+          "user_name": "UserName"
+        }
+      },
+      "field_mappings": {
+        "GroupId": { "source": "/GroupId", "default": "-" },
+        "GroupName": { "source": "/GroupName", "default": "-" },
+        "Arn": { "source": "/Arn", "default": "-" }
+      }
     },
     "iam-access-keys": {
       "display_name": "IAM Access Keys",
@@ -70,7 +113,20 @@
         { "header": "CREATED", "json_path": "CreateDate", "width": 20 }
       ],
       "sub_resources": [],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "query",
+        "action": "ListAccessKeys",
+        "response_root": "/ListAccessKeysResponse/ListAccessKeysResult/AccessKeyMetadata/member",
+        "param_mapping": {
+          "user_name": "UserName"
+        }
+      },
+      "field_mappings": {
+        "AccessKeyId": { "source": "/AccessKeyId", "default": "-" },
+        "Status": { "source": "/Status", "default": "-" },
+        "CreateDate": { "source": "/CreateDate", "default": "-" }
+      }
     },
     "iam-roles": {
       "display_name": "IAM Roles",
@@ -90,7 +146,26 @@
       "sub_resources": [
         { "shortcut": "p", "display_name": "Attached Policies", "resource_key": "iam-role-policies", "parent_id_field": "RoleName", "filter_param": "role_name" }
       ],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "query",
+        "action": "ListRoles",
+        "response_root": "/ListRolesResponse/ListRolesResult/Roles/member"
+      },
+      "field_mappings": {
+        "RoleId": { "source": "/RoleId", "default": "-" },
+        "RoleName": { "source": "/RoleName", "default": "-" },
+        "Arn": { "source": "/Arn", "default": "-" },
+        "Path": { "source": "/Path", "default": "/" },
+        "CreateDate": { "source": "/CreateDate", "default": "-" },
+        "Description": { "source": "/Description", "default": "-" }
+      },
+      "describe_config": {
+        "protocol": "query",
+        "action": "GetRole",
+        "id_param": "RoleName",
+        "response_path": "/GetRoleResponse/GetRoleResult/Role"
+      }
     },
     "iam-role-policies": {
       "display_name": "IAM Role Policies",
@@ -106,7 +181,19 @@
         { "header": "ARN", "json_path": "PolicyArn", "width": 34 }
       ],
       "sub_resources": [],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "query",
+        "action": "ListAttachedRolePolicies",
+        "response_root": "/ListAttachedRolePoliciesResponse/ListAttachedRolePoliciesResult/AttachedPolicies/member",
+        "param_mapping": {
+          "role_name": "RoleName"
+        }
+      },
+      "field_mappings": {
+        "PolicyName": { "source": "/PolicyName", "default": "-" },
+        "PolicyArn": { "source": "/PolicyArn", "default": "-" }
+      }
     },
     "iam-policies": {
       "display_name": "IAM Policies",
@@ -127,7 +214,24 @@
         { "header": "CREATED", "json_path": "CreateDate", "width": 17 }
       ],
       "sub_resources": [],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "query",
+        "action": "ListPolicies",
+        "response_root": "/ListPoliciesResponse/ListPoliciesResult/Policies/member",
+        "static_params": {
+          "Scope": "Local"
+        }
+      },
+      "field_mappings": {
+        "PolicyId": { "source": "/PolicyId", "default": "-" },
+        "PolicyName": { "source": "/PolicyName", "default": "-" },
+        "Arn": { "source": "/Arn", "default": "-" },
+        "Path": { "source": "/Path", "default": "/" },
+        "CreateDate": { "source": "/CreateDate", "default": "-" },
+        "AttachmentCount": { "source": "/AttachmentCount", "default": "0" },
+        "IsAttachable": { "source": "/IsAttachable", "transform": "bool_to_yes_no" }
+      }
     },
     "iam-groups": {
       "display_name": "IAM Groups",
@@ -147,7 +251,19 @@
       "sub_resources": [
         { "shortcut": "u", "display_name": "Users in Group", "resource_key": "iam-group-users", "parent_id_field": "GroupName", "filter_param": "group_name" }
       ],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "query",
+        "action": "ListGroups",
+        "response_root": "/ListGroupsResponse/ListGroupsResult/Groups/member"
+      },
+      "field_mappings": {
+        "GroupId": { "source": "/GroupId", "default": "-" },
+        "GroupName": { "source": "/GroupName", "default": "-" },
+        "Arn": { "source": "/Arn", "default": "-" },
+        "Path": { "source": "/Path", "default": "/" },
+        "CreateDate": { "source": "/CreateDate", "default": "-" }
+      }
     },
     "iam-group-users": {
       "display_name": "IAM Group Users",
@@ -164,7 +280,20 @@
         { "header": "ARN", "json_path": "Arn", "width": 34 }
       ],
       "sub_resources": [],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "query",
+        "action": "GetGroup",
+        "response_root": "/GetGroupResponse/GetGroupResult/Users/member",
+        "param_mapping": {
+          "group_name": "GroupName"
+        }
+      },
+      "field_mappings": {
+        "UserId": { "source": "/UserId", "default": "-" },
+        "UserName": { "source": "/UserName", "default": "-" },
+        "Arn": { "source": "/Arn", "default": "-" }
+      }
     }
   }
 }

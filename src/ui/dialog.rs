@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
 };
 
@@ -88,11 +88,23 @@ fn render_warning_dialog(f: &mut Frame, app: &App) {
         return;
     };
 
-    let area = centered_rect(60, 8, f.area());
+    // Split message into lines and estimate wrapped line count
+    let message_lines: Vec<&str> = message.lines().collect();
+
+    // Estimate height based on content (account for long URLs wrapping)
+    let estimated_lines: usize = message_lines
+        .iter()
+        .map(|line| (line.len() / 70).max(1))
+        .sum();
+
+    // Calculate dialog height: header + blank + message lines + blank + button + borders
+    let height = (estimated_lines + 6).min(20) as u16;
+
+    let area = centered_rect(75, height, f.area());
 
     f.render_widget(Clear, area);
 
-    let text = vec![
+    let mut text = vec![
         Line::from(Span::styled(
             "<Warning>",
             Style::default()
@@ -100,16 +112,21 @@ fn render_warning_dialog(f: &mut Frame, app: &App) {
                 .add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
-        Line::from(Span::styled(
-            message.as_str(),
-            Style::default().fg(Color::White),
-        )),
-        Line::from(""),
-        Line::from(vec![Span::styled(
-            " OK ",
-            Style::default().fg(Color::Black).bg(Color::Magenta),
-        )]),
     ];
+
+    // Add each message line
+    for line in message_lines {
+        text.push(Line::from(Span::styled(
+            line,
+            Style::default().fg(Color::White),
+        )));
+    }
+
+    text.push(Line::from(""));
+    text.push(Line::from(vec![Span::styled(
+        " OK ",
+        Style::default().fg(Color::Black).bg(Color::Magenta),
+    )]));
 
     let block = Block::default()
         .borders(Borders::ALL)
@@ -117,7 +134,8 @@ fn render_warning_dialog(f: &mut Frame, app: &App) {
 
     let paragraph = Paragraph::new(text)
         .block(block)
-        .alignment(Alignment::Center);
+        .alignment(Alignment::Center)
+        .wrap(Wrap { trim: false });
 
     f.render_widget(paragraph, area);
 }

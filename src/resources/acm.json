@@ -16,7 +16,19 @@
         { "header": "IN USE", "json_path": "InUse", "width": 8 }
       ],
       "sub_resources": [],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "json",
+        "action": "ListCertificates",
+        "response_root": "/CertificateSummaryList"
+      },
+      "field_mappings": {
+        "DomainName": { "source": "/DomainName", "default": "-" },
+        "CertificateArn": { "source": "/CertificateArn", "default": "-" },
+        "Status": { "source": "/Status", "default": "-" },
+        "Type": { "source": "/Type", "default": "-" },
+        "InUse": { "source": "/InUse", "transform": "bool_to_yes_no" }
+      }
     }
   }
 }

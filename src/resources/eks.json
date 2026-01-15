@@ -3,22 +3,48 @@
     "eks-clusters": {
       "display_name": "EKS Clusters",
       "service": "eks",
-      "sdk_method": "list_clusters_with_details",
+      "sdk_method": "list_clusters",
       "sdk_method_params": {},
       "response_path": "clusters",
       "id_field": "name",
       "name_field": "name",
       "is_global": false,
       "columns": [
-        { "header": "CLUSTER NAME", "json_path": "name", "width": 30 },
-        { "header": "STATUS", "json_path": "status", "width": 15, "color_map": "state" },
-        { "header": "VERSION", "json_path": "version", "width": 12 },
-        { "header": "ENDPOINT", "json_path": "endpoint", "width": 50 }
+        { "header": "CLUSTER NAME", "json_path": "name", "width": 50 }
       ],
       "sub_resources": [],
       "actions": [
         { "key": "ctrl+d", "display_name": "Delete Cluster", "shortcut": "ctrl+d", "sdk_method": "delete_cluster", "confirm": { "message": "Delete EKS cluster", "default_yes": false, "destructive": true } }
-      ]
+      ],
+      "api_config": {
+        "protocol": "rest-json",
+        "method": "GET",
+        "path": "/clusters",
+        "response_root": "/clusters",
+        "pagination": {
+          "input_token": "nextToken",
+          "output_token": "/nextToken",
+          "max_results_param": "maxResults",
+          "max_results": 100
+        }
+      },
+      "field_mappings": {
+        "name": { "source": "", "default": "-" }
+      },
+      "action_configs": {
+        "delete_cluster": {
+          "action_id": "delete_cluster",
+          "protocol": "rest-json",
+          "method": "DELETE",
+          "path": "/clusters/{resource_id}"
+        }
+      },
+      "describe_config": {
+        "protocol": "rest-json",
+        "method": "GET",
+        "path": "/clusters/{resource_id}",
+        "response_path": "/cluster"
+      }
     }
   }
 }

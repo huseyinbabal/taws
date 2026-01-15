@@ -16,7 +16,19 @@
         { "header": "RECORD COUNT", "json_path": "ResourceRecordSetCount", "width": 15 }
       ],
       "sub_resources": [],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "rest-xml",
+        "method": "GET",
+        "path": "/2013-04-01/hostedzone",
+        "response_root": "/ListHostedZonesResponse/HostedZones/HostedZone"
+      },
+      "field_mappings": {
+        "Id": { "source": "/Id", "default": "-" },
+        "Name": { "source": "/Name", "default": "-" },
+        "ResourceRecordSetCount": { "source": "/ResourceRecordSetCount", "default": "0" },
+        "Config.PrivateZone": { "source": "/Config/PrivateZone", "transform": "private_zone_to_type" }
+      }
     }
   }
 }

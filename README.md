@@ -63,8 +63,8 @@ Download the latest release from the [Releases page](https://github.com/huseyinb
 |----------|--------------|----------|
 | **macOS** | Apple Silicon (M1/M2/M3) | `taws-aarch64-apple-darwin.tar.gz` |
 | **macOS** | Intel | `taws-x86_64-apple-darwin.tar.gz` |
-| **Linux** | x86_64 | `taws-x86_64-unknown-linux-gnu.tar.gz` |
-| **Linux** | ARM64 | `taws-aarch64-unknown-linux-gnu.tar.gz` |
+| **Linux** | x86_64 (musl) | `taws-x86_64-unknown-linux-musl.tar.gz` |
+| **Linux** | ARM64 (musl) | `taws-aarch64-unknown-linux-musl.tar.gz` |
 | **Windows** | x86_64 | `taws-x86_64-pc-windows-msvc.zip` |
 
 #### Quick Install (macOS/Linux)
@@ -78,12 +78,12 @@ sudo mv taws /usr/local/bin/
 curl -sL https://github.com/huseyinbabal/taws/releases/latest/download/taws-x86_64-apple-darwin.tar.gz | tar xz
 sudo mv taws /usr/local/bin/
 
-# Linux x86_64
-curl -sL https://github.com/huseyinbabal/taws/releases/latest/download/taws-x86_64-unknown-linux-gnu.tar.gz | tar xz
+# Linux x86_64 (musl - works on Alpine, Void, etc.)
+curl -sL https://github.com/huseyinbabal/taws/releases/latest/download/taws-x86_64-unknown-linux-musl.tar.gz | tar xz
 sudo mv taws /usr/local/bin/
 
-# Linux ARM64
-curl -sL https://github.com/huseyinbabal/taws/releases/latest/download/taws-aarch64-unknown-linux-gnu.tar.gz | tar xz
+# Linux ARM64 (musl - works on Alpine, Void, etc.)
+curl -sL https://github.com/huseyinbabal/taws/releases/latest/download/taws-aarch64-unknown-linux-musl.tar.gz | tar xz
 sudo mv taws /usr/local/bin/
 ```
 
@@ -98,6 +98,36 @@ sudo mv taws /usr/local/bin/
 ```bash
 cargo install taws
 ```
+
+### Using Docker
+
+```bash
+# Run interactively
+docker run --rm -it ghcr.io/huseyinbabal/taws
+
+# Launch with a specific profile (mount AWS credentials)
+docker run --rm -it \
+  -v ~/.aws:/root/.aws:ro \
+  ghcr.io/huseyinbabal/taws --profile production
+
+# Launch in a specific region
+docker run --rm -it \
+  -v ~/.aws:/root/.aws:ro \
+  ghcr.io/huseyinbabal/taws --region us-west-2
+
+# Using environment variables
+docker run --rm -it \
+  -e AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID \
+  -e AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY \
+  -e AWS_REGION=us-east-1 \
+  ghcr.io/huseyinbabal/taws
+
+# Build locally
+docker build -t taws .
+docker run --rm -it -v ~/.aws:/root/.aws:ro taws
+```
+
+> **Note:** Use `-it` flags for interactive terminal support (required for TUI). Mount your `~/.aws` directory as read-only to use your existing AWS credentials.
 
 ### From Source
 
@@ -197,8 +227,10 @@ AWS_ENDPOINT_URL=http://localhost:4566 taws
 | **Navigation** | | |
 | Move up | `k` / `↑` | Move selection up |
 | Move down | `j` / `↓` | Move selection down |
-| Top | `gg` | Jump to first item |
-| Bottom | `G` | Jump to last item |
+| Top | `gg` / `Home` | Jump to first item |
+| Bottom | `G` / `End` | Jump to last item |
+| Page up | `PgUp` / `Ctrl+b` | Scroll up one page |
+| Page down | `PgDn` / `Ctrl+f` | Scroll down one page |
 | **Pagination** | | |
 | Next page | `]` | Load next page of results |
 | Previous page | `[` | Load previous page of results |
@@ -213,9 +245,10 @@ AWS_ENDPOINT_URL=http://localhost:4566 taws
 | Region shortcuts | `0-5` | Quick switch to common regions |
 | Quit | `Ctrl-c` | Exit taws |
 | **EC2 Actions** | | |
+| Connect (SSM) | `c` | Open SSM shell session to instance |
 | Start instance | `s` | Start selected EC2 instance |
 | Stop instance | `S` | Stop selected EC2 instance |
-| Terminate | `T` | Terminate selected EC2 instance |
+| Terminate | `Ctrl+d` | Terminate selected EC2 instance |
 
 ---
 
@@ -292,7 +325,23 @@ See [Authentication](#authentication) for credential setup.
 | `AWS_ACCESS_KEY_ID` | AWS access key |
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key |
 | `AWS_SESSION_TOKEN` | AWS session token (for temporary credentials) |
+| `AWS_SHARED_CREDENTIALS_FILE` | Custom path to credentials file (default: `~/.aws/credentials`) |
+| `AWS_CONFIG_FILE` | Custom path to config file (default: `~/.aws/config`) |
 | `AWS_ENDPOINT_URL` | Custom endpoint URL (for LocalStack, etc.) |
+
+---
+
+## SSM Connect (EC2 Shell Access)
+
+Press `c` on a running EC2 instance to open an interactive shell session via AWS Systems Manager.
+
+**Requirements:**
+- [session-manager-plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html) must be installed
+- EC2 instance must have SSM Agent running
+- Instance must be running (not stopped/terminated)
+- Linux instances only (Windows not supported via shell)
+
+**Note:** When you exit the shell session (`exit`), you'll return to taws.
 
 ---
 

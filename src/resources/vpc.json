@@ -21,7 +21,20 @@
         { "shortcut": "s", "display_name": "Subnets", "resource_key": "subnets", "parent_id_field": "VpcId", "filter_param": "vpc_ids" },
         { "shortcut": "g", "display_name": "Security Groups", "resource_key": "security-groups", "parent_id_field": "VpcId", "filter_param": "vpc_ids" }
       ],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "query",
+        "action": "DescribeVpcs",
+        "response_root": "/DescribeVpcsResponse/vpcSet/item"
+      },
+      "field_mappings": {
+        "VpcId": { "source": "/vpcId", "default": "-" },
+        "State": { "source": "/state", "default": "-" },
+        "CidrBlock": { "source": "/cidrBlock", "default": "-" },
+        "IsDefault": { "source": "/isDefault", "transform": "bool_to_yes_no" },
+        "InstanceTenancy": { "source": "/instanceTenancy", "default": "-" },
+        "Tags": { "source": "/tagSet/item", "transform": "tags_to_map" }
+      }
     },
     "subnets": {
       "display_name": "Subnets",
@@ -42,7 +55,21 @@
         { "header": "AVAILABLE IPs", "json_path": "AvailableIpAddressCount", "width": 14 }
       ],
       "sub_resources": [],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "query",
+        "action": "DescribeSubnets",
+        "response_root": "/DescribeSubnetsResponse/subnetSet/item"
+      },
+      "field_mappings": {
+        "SubnetId": { "source": "/subnetId", "default": "-" },
+        "VpcId": { "source": "/vpcId", "default": "-" },
+        "State": { "source": "/state", "default": "-" },
+        "CidrBlock": { "source": "/cidrBlock", "default": "-" },
+        "AvailabilityZone": { "source": "/availabilityZone", "default": "-" },
+        "AvailableIpAddressCount": { "source": "/availableIpAddressCount", "default": "0" },
+        "Tags": { "source": "/tagSet/item", "transform": "tags_to_map" }
+      }
     },
     "security-groups": {
       "display_name": "Security Groups",
@@ -60,7 +87,19 @@
         { "header": "DESCRIPTION", "json_path": "Description", "width": 30 }
       ],
       "sub_resources": [],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "query",
+        "action": "DescribeSecurityGroups",
+        "response_root": "/DescribeSecurityGroupsResponse/securityGroupInfo/item"
+      },
+      "field_mappings": {
+        "GroupId": { "source": "/groupId", "default": "-" },
+        "GroupName": { "source": "/groupName", "default": "-" },
+        "VpcId": { "source": "/vpcId", "default": "-" },
+        "Description": { "source": "/groupDescription", "default": "-" },
+        "OwnerId": { "source": "/ownerId", "default": "-" }
+      }
     }
   }
 }

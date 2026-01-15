@@ -18,7 +18,7 @@ use aws::client::ClientResult;
 use clap::{Parser, ValueEnum};
 use config::Config;
 use crossterm::{
-    event::{poll, read, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
+    event::{poll, read, Event, KeyCode, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -28,7 +28,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 use tracing::Level;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
-use ui::splash::{SplashState, render as render_splash};
+use ui::splash::{render as render_splash, SplashState};
 
 /// Terminal UI for AWS
 #[derive(Parser, Debug)]
@@ -79,13 +79,11 @@ impl LogLevel {
 }
 
 fn setup_logging(level: LogLevel) -> Option<tracing_appender::non_blocking::WorkerGuard> {
-    let Some(tracing_level) = level.to_tracing_level() else {
-        return None;
-    };
+    let tracing_level = level.to_tracing_level()?;
 
     // Get log file path
     let log_path = get_log_path();
-    
+
     // Ensure parent directory exists
     if let Some(parent) = log_path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -137,7 +135,7 @@ async fn main() -> Result<()> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -175,16 +173,13 @@ where
     B::Error: Send + Sync + 'static,
 {
     disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
     Ok(())
 }
 
 /// Result of initialization - either an App or SSO login is required
+#[allow(clippy::large_enum_variant)]
 enum InitResult {
     App(App),
     SsoRequired {
@@ -199,40 +194,47 @@ enum InitResult {
     },
 }
 
-async fn initialize_with_splash<B: Backend>(terminal: &mut Terminal<B>, args: &Args) -> Result<Option<App>>
+async fn initialize_with_splash<B: Backend>(
+    terminal: &mut Terminal<B>,
+    args: &Args,
+) -> Result<Option<App>>
 where
     B::Error: Send + Sync + 'static,
 {
     match initialize_inner(terminal, args).await? {
         None => Ok(None), // User aborted
         Some(InitResult::App(app)) => Ok(Some(app)),
-        Some(InitResult::SsoRequired { 
-            profile, 
-            sso_session, 
-            region, 
-            endpoint_url, 
-            config, 
-            available_profiles, 
-            available_regions, 
+        Some(InitResult::SsoRequired {
+            profile,
+            sso_session,
+            region,
+            endpoint_url,
+            config,
+            available_profiles,
+            available_regions,
             readonly,
         }) => {
             // Handle SSO login flow
             handle_sso_login_flow(
-                terminal, 
-                profile, 
-                sso_session, 
-                region, 
-                endpoint_url, 
-                config, 
-                available_profiles, 
+                terminal,
+                profile,
+                sso_session,
+                region,
+                endpoint_url,
+                config,
+                available_profiles,
                 available_regions,
                 readonly,
-            ).await
+            )
+            .await
         }
     }
 }
 
-async fn initialize_inner<B: Backend>(terminal: &mut Terminal<B>, args: &Args) -> Result<Option<InitResult>>
+async fn initialize_inner<B: Backend>(
+    terminal: &mut Terminal<B>,
+    args: &Args,
+) -> Result<Option<InitResult>>
 where
     B::Error: Send + Sync + 'static,
 {
@@ -248,17 +250,28 @@ where
 
     // Step 1: Load configuration (CLI args > env vars > saved config)
     let config = Config::load();
-    let profile = args.profile.clone()
+    let profile = args
+        .profile
+        .clone()
         .unwrap_or_else(|| config.effective_profile());
-    let region = args.region.clone()
+    let region = args
+        .region
+        .clone()
         .unwrap_or_else(|| config.effective_region());
-    
+
     // Get endpoint URL from CLI arg or environment variable
-    let endpoint_url = args.endpoint_url.clone()
+    let endpoint_url = args
+        .endpoint_url
+        .clone()
         .or_else(|| std::env::var("AWS_ENDPOINT_URL").ok());
-    
-    tracing::info!("Using profile: {}, region: {}, endpoint_url: {:?}", profile, region, endpoint_url);
-    
+
+    tracing::info!(
+        "Using profile: {}, region: {}, endpoint_url: {:?}",
+        profile,
+        region,
+        endpoint_url
+    );
+
     splash.set_message(&format!("Loading AWS config [profile: {}]", profile));
     terminal.draw(|f| render_splash(f, &splash))?;
     splash.complete_step();
@@ -271,7 +284,8 @@ where
     splash.set_message("Reading ~/.aws/config");
     terminal.draw(|f| render_splash(f, &splash))?;
 
-    let available_profiles = aws::profiles::list_profiles().unwrap_or_else(|_| vec!["default".to_string()]);
+    let available_profiles =
+        aws::profiles::list_profiles().unwrap_or_else(|_| vec!["default".to_string()]);
     let available_regions = aws::profiles::list_regions();
     splash.complete_step();
 
@@ -283,13 +297,24 @@ where
     splash.set_message(&format!("Connecting to AWS services [{}]", region));
     terminal.draw(|f| render_splash(f, &splash))?;
 
-    let client_result = aws::client::AwsClients::new_with_sso_check(&profile, &region, endpoint_url.clone()).await?;
-    
+    let client_result =
+        aws::client::AwsClients::new_with_sso_check(&profile, &region, endpoint_url.clone())
+            .await?;
+
     let (clients, actual_region) = match client_result {
         ClientResult::Ok(clients, actual_region) => (clients, actual_region),
-        ClientResult::SsoLoginRequired { profile, sso_session, region, endpoint_url } => {
+        ClientResult::SsoLoginRequired {
+            profile,
+            sso_session,
+            region,
+            endpoint_url,
+        } => {
             // SSO login required - return early to handle in separate flow
-            tracing::debug!("SSO login required for profile '{}', session '{}' - showing login dialog", profile, sso_session);
+            tracing::debug!(
+                "SSO login required for profile '{}', session '{}' - showing login dialog",
+                profile,
+                sso_session
+            );
             return Ok(Some(InitResult::SsoRequired {
                 profile,
                 sso_session,
@@ -302,7 +327,7 @@ where
             }));
         }
     };
-    
+
     splash.complete_step();
 
     if check_abort()? {
@@ -353,6 +378,7 @@ where
 }
 
 /// Handle SSO login flow interactively
+#[allow(clippy::too_many_arguments)]
 async fn handle_sso_login_flow<B: Backend>(
     terminal: &mut Terminal<B>,
     profile: String,
@@ -368,21 +394,25 @@ where
     B::Error: Send + Sync + 'static,
 {
     use aws::sso;
-    
-    tracing::info!("Entering SSO login flow for profile '{}', session '{}'", profile, sso_session);
-    
+
+    tracing::info!(
+        "Entering SSO login flow for profile '{}', session '{}'",
+        profile,
+        sso_session
+    );
+
     // Create a minimal app state for the SSO dialog
     let mut sso_state = SsoLoginState::Prompt {
         profile: profile.clone(),
         sso_session: sso_session.clone(),
     };
-    
+
     loop {
         // Render SSO dialog
         terminal.draw(|f| {
             render_sso_standalone(f, &sso_state);
         })?;
-        
+
         // Handle input
         if poll(Duration::from_millis(100))? {
             if let Event::Key(key) = read()? {
@@ -392,45 +422,64 @@ where
                             KeyCode::Enter => {
                                 // First check if we already have a valid cached token (e.g., from aws sso login)
                                 let profile_clone = profile.clone();
-                                
+
                                 enum SsoStartResult {
                                     ExistingToken(String),
-                                    NeedAuth { profile: String, device_auth: sso::DeviceAuthInfo, sso_region: String },
+                                    NeedAuth {
+                                        profile: String,
+                                        device_auth: sso::DeviceAuthInfo,
+                                        sso_region: String,
+                                    },
                                     Error(String),
                                 }
-                                
+
                                 let result = tokio::task::spawn_blocking(move || {
                                     let sso_config = match sso::get_sso_config(&profile_clone) {
                                         Some(c) => c,
-                                        None => return SsoStartResult::Error(format!("SSO config not found for profile '{}'", profile_clone)),
+                                        None => {
+                                            return SsoStartResult::Error(format!(
+                                                "SSO config not found for profile '{}'",
+                                                profile_clone
+                                            ))
+                                        }
                                     };
-                                    
+
                                     // Check for existing valid token first
                                     if let Some(_token) = sso::check_existing_token(&sso_config) {
                                         return SsoStartResult::ExistingToken(profile_clone);
                                     }
-                                    
+
                                     // No valid token, start device authorization
                                     match sso::start_device_authorization(&sso_config) {
                                         Ok(device_auth) => {
                                             // Open browser
-                                            let _ = sso::open_sso_browser(&device_auth.verification_uri_complete);
-                                            SsoStartResult::NeedAuth { 
-                                                profile: profile_clone, 
-                                                device_auth, 
-                                                sso_region: sso_config.sso_region 
+                                            let _ = sso::open_sso_browser(
+                                                &device_auth.verification_uri_complete,
+                                            );
+                                            SsoStartResult::NeedAuth {
+                                                profile: profile_clone,
+                                                device_auth,
+                                                sso_region: sso_config.sso_region,
                                             }
                                         }
-                                        Err(e) => SsoStartResult::Error(format!("Failed to start SSO: {}", e)),
+                                        Err(e) => SsoStartResult::Error(format!(
+                                            "Failed to start SSO: {}",
+                                            e
+                                        )),
                                     }
-                                }).await?;
-                                
+                                })
+                                .await?;
+
                                 match result {
                                     SsoStartResult::ExistingToken(prof) => {
                                         // Already have valid token, skip straight to success
                                         sso_state = SsoLoginState::Success { profile: prof };
                                     }
-                                    SsoStartResult::NeedAuth { profile: prof, device_auth, sso_region } => {
+                                    SsoStartResult::NeedAuth {
+                                        profile: prof,
+                                        device_auth,
+                                        sso_region,
+                                    } => {
                                         sso_state = SsoLoginState::WaitingForAuth {
                                             profile: prof,
                                             user_code: device_auth.user_code,
@@ -466,7 +515,7 @@ where
                                 // Any other key - continue polling
                             }
                         }
-                        
+
                         // Poll for token - run blocking code on separate thread
                         let profile_clone = profile.clone();
                         let result = tokio::task::spawn_blocking(move || {
@@ -479,8 +528,9 @@ where
                             } else {
                                 Ok(None)
                             }
-                        }).await?;
-                        
+                        })
+                        .await?;
+
                         match result {
                             Ok(Some(prof)) => {
                                 sso_state = SsoLoginState::Success { profile: prof };
@@ -493,17 +543,26 @@ where
                             }
                         }
                     }
-                    SsoLoginState::Success { profile: _sso_profile } => {
+                    SsoLoginState::Success {
+                        profile: _sso_profile,
+                    } => {
                         // Note: _sso_profile should match the outer `profile` variable for initial SSO
                         match key.code {
                             KeyCode::Enter | KeyCode::Esc => {
                                 // SSO successful - now create the client and continue initialization
                                 // AwsClients::new handles blocking internally via spawn_blocking
-                                let (clients, actual_region) = aws::client::AwsClients::new(&profile, &region, endpoint_url.clone()).await?;
-                                
+                                let (clients, actual_region) = aws::client::AwsClients::new(
+                                    &profile,
+                                    &region,
+                                    endpoint_url.clone(),
+                                )
+                                .await?;
+
                                 // Fetch initial resources
                                 let (instances, initial_error) = {
-                                    match resource::fetch_resources("ec2-instances", &clients, &[]).await {
+                                    match resource::fetch_resources("ec2-instances", &clients, &[])
+                                        .await
+                                    {
                                         Ok(items) => (items, None),
                                         Err(e) => {
                                             let error_msg = aws::client::format_aws_error(&e);
@@ -511,7 +570,7 @@ where
                                         }
                                     }
                                 };
-                                
+
                                 let mut app = App::from_initialized(
                                     clients,
                                     profile,
@@ -523,11 +582,11 @@ where
                                     readonly,
                                     endpoint_url,
                                 );
-                                
+
                                 if let Some(err) = initial_error {
                                     app.error_message = Some(err);
                                 }
-                                
+
                                 return Ok(Some(app));
                             }
                             KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -551,7 +610,11 @@ where
             }
         } else {
             // No key event - poll for SSO if waiting
-            if let SsoLoginState::WaitingForAuth { profile: waiting_profile, .. } = &sso_state {
+            if let SsoLoginState::WaitingForAuth {
+                profile: waiting_profile,
+                ..
+            } = &sso_state
+            {
                 let waiting_profile = waiting_profile.clone();
                 let result = tokio::task::spawn_blocking(move || {
                     if let Some(sso_config) = sso::get_sso_config(&waiting_profile) {
@@ -563,8 +626,9 @@ where
                     } else {
                         Ok(None)
                     }
-                }).await?;
-                
+                })
+                .await?;
+
                 match result {
                     Ok(Some(prof)) => {
                         sso_state = SsoLoginState::Success { profile: prof };
@@ -589,7 +653,7 @@ fn render_sso_standalone(f: &mut ratatui::Frame, sso_state: &SsoLoginState) {
         text::{Line, Span},
         widgets::{Block, Borders, Clear, Paragraph},
     };
-    
+
     fn centered_rect(percent_x: u16, height: u16, r: Rect) -> Rect {
         let popup_layout = Layout::default()
             .direction(Direction::Vertical)
@@ -609,22 +673,27 @@ fn render_sso_standalone(f: &mut ratatui::Frame, sso_state: &SsoLoginState) {
             ])
             .split(popup_layout[1])[1]
     }
-    
+
     // Clear the screen with a dark background
     let area = f.area();
     f.render_widget(Clear, area);
     let bg_block = Block::default().style(Style::default().bg(Color::Black));
     f.render_widget(bg_block, area);
-    
+
     match sso_state {
-        SsoLoginState::Prompt { profile, sso_session } => {
+        SsoLoginState::Prompt {
+            profile,
+            sso_session,
+        } => {
             let dialog_area = centered_rect(70, 10, area);
             f.render_widget(Clear, dialog_area);
 
             let text = vec![
                 Line::from(Span::styled(
                     "<SSO Login Required>",
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
                 )),
                 Line::from(""),
                 Line::from(Span::styled(
@@ -646,18 +715,26 @@ fn render_sso_standalone(f: &mut ratatui::Frame, sso_state: &SsoLoginState) {
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::Cyan));
 
-            let paragraph = Paragraph::new(text).block(block).alignment(Alignment::Center);
+            let paragraph = Paragraph::new(text)
+                .block(block)
+                .alignment(Alignment::Center);
             f.render_widget(paragraph, dialog_area);
         }
 
-        SsoLoginState::WaitingForAuth { user_code, verification_uri, .. } => {
+        SsoLoginState::WaitingForAuth {
+            user_code,
+            verification_uri,
+            ..
+        } => {
             let dialog_area = centered_rect(70, 12, area);
             f.render_widget(Clear, dialog_area);
 
             let text = vec![
                 Line::from(Span::styled(
                     "<Waiting for SSO Authentication>",
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
                 )),
                 Line::from(""),
                 Line::from(Span::styled(
@@ -667,7 +744,12 @@ fn render_sso_standalone(f: &mut ratatui::Frame, sso_state: &SsoLoginState) {
                 Line::from(""),
                 Line::from(vec![
                     Span::styled("Code: ", Style::default().fg(Color::DarkGray)),
-                    Span::styled(user_code, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        user_code,
+                        Style::default()
+                            .fg(Color::Cyan)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                 ]),
                 Line::from(vec![
                     Span::styled("URL: ", Style::default().fg(Color::DarkGray)),
@@ -684,7 +766,9 @@ fn render_sso_standalone(f: &mut ratatui::Frame, sso_state: &SsoLoginState) {
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::Yellow));
 
-            let paragraph = Paragraph::new(text).block(block).alignment(Alignment::Center);
+            let paragraph = Paragraph::new(text)
+                .block(block)
+                .alignment(Alignment::Center);
             f.render_widget(paragraph, dialog_area);
         }
 
@@ -695,7 +779,9 @@ fn render_sso_standalone(f: &mut ratatui::Frame, sso_state: &SsoLoginState) {
             let text = vec![
                 Line::from(Span::styled(
                     "<SSO Login Successful>",
-                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
                 )),
                 Line::from(""),
                 Line::from(Span::styled(
@@ -708,7 +794,9 @@ fn render_sso_standalone(f: &mut ratatui::Frame, sso_state: &SsoLoginState) {
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::Green));
 
-            let paragraph = Paragraph::new(text).block(block).alignment(Alignment::Center);
+            let paragraph = Paragraph::new(text)
+                .block(block)
+                .alignment(Alignment::Center);
             f.render_widget(paragraph, dialog_area);
         }
 
@@ -722,7 +810,10 @@ fn render_sso_standalone(f: &mut ratatui::Frame, sso_state: &SsoLoginState) {
                     Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                 )),
                 Line::from(""),
-                Line::from(Span::styled(error.as_str(), Style::default().fg(Color::White))),
+                Line::from(Span::styled(
+                    error.as_str(),
+                    Style::default().fg(Color::White),
+                )),
                 Line::from(""),
                 Line::from(Span::styled(
                     "Press Enter or Esc to exit",
@@ -734,7 +825,9 @@ fn render_sso_standalone(f: &mut ratatui::Frame, sso_state: &SsoLoginState) {
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::Red));
 
-            let paragraph = Paragraph::new(text).block(block).alignment(Alignment::Center);
+            let paragraph = Paragraph::new(text)
+                .block(block)
+                .alignment(Alignment::Center);
             f.render_widget(paragraph, dialog_area);
         }
     }
@@ -762,20 +855,102 @@ where
         if event::handle_events(app).await? {
             return Ok(());
         }
-        
+
+        // Handle SSM connect request (requires suspending TUI)
+        if let Some(request) = app.take_ssm_connect_request() {
+            execute_ssm_connect(terminal, &request)?;
+        }
+
         // Poll SSO if in waiting state
         if app.mode == Mode::SsoLogin {
             event::poll_sso_if_waiting(app).await;
         }
-        
+
         // Poll for new log events if in log tail mode
         if app.mode == Mode::LogTail {
             event::poll_logs_if_tailing(app).await;
         }
-        
+
         // Auto-refresh every 5 seconds (only in Normal mode)
         if app.needs_refresh() {
             let _ = app.refresh_current().await;
         }
     }
+}
+
+/// Execute SSM connect by suspending TUI and running aws ssm start-session
+fn execute_ssm_connect<B: Backend>(
+    terminal: &mut Terminal<B>,
+    request: &app::SsmConnectRequest,
+) -> Result<()>
+where
+    B::Error: Send + Sync + 'static,
+{
+    use std::io::Write;
+
+    // Suspend TUI - restore terminal to normal mode
+    crossterm::terminal::disable_raw_mode()?;
+    crossterm::execute!(
+        std::io::stdout(),
+        crossterm::terminal::LeaveAlternateScreen,
+        crossterm::cursor::Show
+    )?;
+
+    // Print connection info
+    println!(
+        "\n\x1b[1;36m>>> Connecting to {} via SSM...\x1b[0m\n",
+        request.instance_id
+    );
+    std::io::stdout().flush()?;
+
+    // Run aws ssm start-session
+    let status = std::process::Command::new("aws")
+        .args([
+            "ssm",
+            "start-session",
+            "--target",
+            &request.instance_id,
+            "--region",
+            &request.region,
+            "--profile",
+            &request.profile,
+        ])
+        .status();
+
+    match status {
+        Ok(exit_status) => {
+            if !exit_status.success() {
+                let code = exit_status.code().unwrap_or(-1);
+                println!("\n\x1b[1;33mSSM session exited with code: {}\x1b[0m", code);
+                if code == 254 {
+                    println!("\x1b[0;33mThis usually means the instance is not connected to SSM.");
+                    println!(
+                        "Check that SSM Agent is installed and running on the instance.\x1b[0m"
+                    );
+                }
+            }
+        }
+        Err(e) => {
+            println!("\n\x1b[1;31mFailed to start SSM session: {}\x1b[0m", e);
+        }
+    }
+
+    println!("\n\x1b[1;36m>>> Returning to taws... Press any key.\x1b[0m");
+    std::io::stdout().flush()?;
+
+    // Wait for a key press before restoring TUI
+    crossterm::terminal::enable_raw_mode()?;
+    let _ = crossterm::event::read(); // Wait for any key
+    crossterm::terminal::disable_raw_mode()?;
+
+    // Restore TUI
+    crossterm::terminal::enable_raw_mode()?;
+    crossterm::execute!(
+        std::io::stdout(),
+        crossterm::terminal::EnterAlternateScreen,
+        crossterm::cursor::Hide
+    )?;
+    terminal.clear()?;
+
+    Ok(())
 }

@@ -18,7 +18,28 @@
       "sub_resources": [],
       "actions": [
         { "key": "ctrl+d", "display_name": "Delete Stack", "shortcut": "ctrl+d", "sdk_method": "delete_stack", "confirm": { "message": "Delete CloudFormation stack", "default_yes": false, "destructive": true } }
-      ]
+      ],
+      "api_config": {
+        "protocol": "query",
+        "action": "DescribeStacks",
+        "response_root": "/DescribeStacksResponse/DescribeStacksResult/Stacks/member"
+      },
+      "field_mappings": {
+        "StackName": { "source": "/StackName", "default": "-" },
+        "StackId": { "source": "/StackId", "default": "-" },
+        "StackStatus": { "source": "/StackStatus", "default": "-" },
+        "CreationTime": { "source": "/CreationTime", "default": "-" },
+        "LastUpdatedTime": { "source": "/LastUpdatedTime", "default": "-" },
+        "Description": { "source": "/Description", "default": "-" }
+      },
+      "action_configs": {
+        "delete_stack": {
+          "action_id": "delete_stack",
+          "protocol": "query",
+          "action": "DeleteStack",
+          "id_param": "StackName"
+        }
+      }
     }
   }
 }

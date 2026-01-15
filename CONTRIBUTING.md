@@ -44,27 +44,35 @@ cargo clippy
 
 ## Architecture
 
-taws follows a data-driven architecture where AWS resource definitions are stored as JSON configuration files. This makes it easy to add new resource types without writing extensive code.
+taws follows a **fully data-driven architecture** where AWS resource definitions, API configurations, actions, and field mappings are all stored in JSON configuration files. This makes it easy to add new resource types without writing any Rust code.
 
 ```
 src/
-├── resources/          # JSON resource definitions (one per service)
+├── resources/              # JSON resource definitions (one per service)
 │   ├── ec2.json
 │   ├── lambda.json
 │   ├── s3.json
 │   └── ...
 ├── resource/
-│   ├── registry.rs     # Resource registry and loading
-│   ├── fetcher.rs      # Generic resource fetcher
-│   └── sdk_dispatch.rs # HTTP-based AWS API calls
+│   ├── registry.rs         # Resource registry and JSON loading
+│   ├── fetcher.rs          # Generic resource fetcher
+│   ├── dispatch.rs         # Unified API dispatcher
+│   ├── protocol.rs         # API protocol types and configs
+│   ├── field_mapper.rs     # Field transformation (tags, bytes, etc.)
+│   ├── path_extractor.rs   # JSON path extraction utilities
+│   └── handlers/           # Protocol-specific handlers
+│       ├── query.rs        # EC2/IAM style (XML response)
+│       ├── json.rs         # JSON-RPC style (DynamoDB, ECS)
+│       ├── rest_json.rs    # REST + JSON (Lambda, EKS)
+│       └── rest_xml.rs     # REST + XML (S3, Route53)
 ├── aws/
-│   ├── client.rs       # AWS HTTP client management
-│   ├── credentials.rs  # Credential loading (profiles, env vars)
-│   ├── http.rs         # Lightweight HTTP client with SigV4 signing
-│   └── profiles.rs     # AWS profile handling
+│   ├── client.rs           # AWS HTTP client management
+│   ├── credentials.rs      # Credential loading (profiles, env vars)
+│   ├── http.rs             # Lightweight HTTP client with SigV4 signing
+│   └── profiles.rs         # AWS profile handling
 └── ui/
-    ├── table.rs        # Resource table view
-    ├── details.rs      # Resource details view
+    ├── table.rs            # Resource table view
+    ├── details.rs          # Resource details view
     └── ...
 ```
 
@@ -78,7 +86,7 @@ taws uses a custom lightweight HTTP client with AWS SigV4 signing instead of the
 
 ## Adding a New AWS Service
 
-To add support for a new AWS service, follow these steps:
+Adding a new AWS service is now **completely data-driven** - you only need to edit JSON files, no Rust code required!
 
 ### 1. Start a Discussion
 
@@ -105,7 +113,7 @@ Add the AWS service definition to `src/aws/http.rs`:
 
 ### 3. Add Resource JSON Definition
 
-Create `src/resources/myservice.json`:
+Create `src/resources/myservice.json`. The JSON file contains everything needed - no Rust code required:
 
 ```json
 {
@@ -120,43 +128,94 @@ Create `src/resources/myservice.json`:
       "is_global": false,
       "columns": [
         { "header": "ID", "json_path": "ItemId", "width": 20 },
-        { "header": "Name", "json_path": "ItemName", "width": 30 },
-        { "header": "Status", "json_path": "Status", "width": 15, "color_map": "status" }
-      ]
+        { "header": "NAME", "json_path": "ItemName", "width": 30 },
+        { "header": "STATUS", "json_path": "Status", "width": 15, "color_map": "state" }
+      ],
+      "actions": [
+        { "key": "ctrl+d", "display_name": "Delete", "shortcut": "ctrl+d", "sdk_method": "delete_item", 
+          "confirm": { "message": "Delete item", "default_yes": false, "destructive": true } }
+      ],
+      "api_config": {
+        "protocol": "json",
+        "action": "ListItems",
+        "response_root": "/Items"
+      },
+      "field_mappings": {
+        "ItemId": { "source": "/ItemId", "default": "-" },
+        "ItemName": { "source": "/ItemName", "default": "-" },
+        "Status": { "source": "/Status", "default": "-" }
+      },
+      "action_configs": {
+        "delete_item": {
+          "action_id": "delete_item",
+          "protocol": "json",
+          "action": "DeleteItem",
+          "body_template": "{\"ItemId\": \"{resource_id}\"}"
+        }
+      },
+      "describe_config": {
+        "protocol": "json",
+        "action": "DescribeItem",
+        "body_template": "{\"ItemId\": \"{resource_id}\"}"
+      }
     }
   }
 }
 ```
 
-### 4. Add SDK Dispatch Handler
+### JSON Configuration Reference
 
-Add the HTTP dispatch handler to `src/resource/sdk_dispatch.rs`:
+#### Protocol Types
 
-```rust
-("myservice", "list_items") => {
-    let response = clients.http.json_request(
-        "myservice",
-        "ListItems",
-        "{}"
-    ).await?;
-    
-    let items = response.get("Items")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
-    
-    Ok(json!({ "items": items }))
-}
-```
+| Protocol | Description | Examples |
+|----------|-------------|----------|
+| `query` | Query params + XML response | EC2, IAM, RDS, ELBv2 |
+| `json` | JSON-RPC with X-Amz-Target header | DynamoDB, ECS, SecretsManager |
+| `rest-json` | REST API with JSON body | Lambda, EKS, API Gateway |
+| `rest-xml` | REST API with XML body | S3, Route53, CloudFront |
 
-### 5. Test Your Changes
+#### api_config Fields
+
+| Field | Description |
+|-------|-------------|
+| `protocol` | One of: `query`, `json`, `rest-json`, `rest-xml` |
+| `action` | API action name (e.g., `ListItems`, `DescribeInstances`) |
+| `method` | HTTP method for REST protocols (default: `GET`) |
+| `path` | URL path for REST protocols (e.g., `/2015-03-31/functions`) |
+| `response_root` | JSON pointer to extract items from response |
+| `pagination` | Pagination config (input_token, output_token, etc.) |
+
+#### field_mappings Fields
+
+| Field | Description |
+|-------|-------------|
+| `source` | JSON pointer path to extract value (e.g., `/instanceId`) |
+| `default` | Default value if path not found |
+| `transform` | Optional transform: `tags_to_map`, `format_bytes`, `bool_to_yes_no`, `array_to_csv` |
+
+#### action_configs Fields
+
+| Field | Description |
+|-------|-------------|
+| `action_id` | Unique action identifier |
+| `protocol` | API protocol to use |
+| `action` | API action name |
+| `id_param` | Parameter name for resource ID |
+| `body_template` | JSON body template with `{resource_id}` placeholder |
+| `static_params` | Static parameters to include |
+
+### 4. Test Your Changes
 
 ```bash
 # Build and run
-cargo run
+cargo build && cargo run
 
 # Test the new resource
 # Press : and type your resource name
+
+# Run tests and linter
+cargo test
+cargo clippy -- -D warnings
 ```
 
 ## Code Style

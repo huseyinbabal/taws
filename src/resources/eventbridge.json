@@ -16,7 +16,20 @@
         { "header": "DESCRIPTION", "json_path": "Description", "width": 30 }
       ],
       "sub_resources": [],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "json",
+        "service_name": "events",
+        "action": "ListRules",
+        "response_root": "/Rules"
+      },
+      "field_mappings": {
+        "Name": { "source": "/Name", "default": "-" },
+        "Arn": { "source": "/Arn", "default": "-" },
+        "State": { "source": "/State", "default": "-" },
+        "EventBusName": { "source": "/EventBusName", "default": "-" },
+        "Description": { "source": "/Description", "default": "-" }
+      }
     },
     "eventbridge-buses": {
       "display_name": "EventBridge Event Buses",
@@ -32,7 +45,17 @@
         { "header": "ARN", "json_path": "Arn", "width": 60 }
       ],
       "sub_resources": [],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "json",
+        "service_name": "events",
+        "action": "ListEventBuses",
+        "response_root": "/EventBuses"
+      },
+      "field_mappings": {
+        "Name": { "source": "/Name", "default": "-" },
+        "Arn": { "source": "/Arn", "default": "-" }
+      }
     }
   }
 }

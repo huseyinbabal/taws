@@ -16,7 +16,19 @@
         { "header": "CREATED", "json_path": "createdDate", "width": 25 }
       ],
       "sub_resources": [],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "rest-json",
+        "method": "GET",
+        "path": "/restapis",
+        "response_root": "/item"
+      },
+      "field_mappings": {
+        "id": { "source": "/id", "default": "-" },
+        "name": { "source": "/name", "default": "-" },
+        "description": { "source": "/description", "default": "-" },
+        "createdDate": { "source": "/createdDate", "default": "-" }
+      }
     }
   }
 }

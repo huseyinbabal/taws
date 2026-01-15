@@ -15,7 +15,17 @@
         { "header": "DESCRIPTION", "json_path": "Description", "width": 40 }
       ],
       "sub_resources": [],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "json",
+        "action": "ListWorkGroups",
+        "response_root": "/WorkGroups"
+      },
+      "field_mappings": {
+        "Name": { "source": "/Name", "default": "-" },
+        "State": { "source": "/State", "default": "-" },
+        "Description": { "source": "/Description", "default": "-" }
+      }
     }
   }
 }

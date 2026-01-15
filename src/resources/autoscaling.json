@@ -20,7 +20,31 @@
       "sub_resources": [],
       "actions": [
         { "key": "ctrl+d", "display_name": "Delete Group", "shortcut": "ctrl+d", "sdk_method": "delete_auto_scaling_group", "confirm": { "message": "Delete Auto Scaling group", "default_yes": false, "destructive": true } }
-      ]
+      ],
+      "api_config": {
+        "protocol": "query",
+        "action": "DescribeAutoScalingGroups",
+        "response_root": "/DescribeAutoScalingGroupsResponse/DescribeAutoScalingGroupsResult/AutoScalingGroups/member"
+      },
+      "field_mappings": {
+        "AutoScalingGroupName": { "source": "/AutoScalingGroupName", "default": "-" },
+        "MinSize": { "source": "/MinSize", "default": "0" },
+        "MaxSize": { "source": "/MaxSize", "default": "0" },
+        "DesiredCapacity": { "source": "/DesiredCapacity", "default": "0" },
+        "InstanceCount": { "source": "/Instances/member", "default": "0" },
+        "AvailabilityZones": { "source": "/AvailabilityZones", "default": "-" }
+      },
+      "action_configs": {
+        "delete_auto_scaling_group": {
+          "action_id": "delete_auto_scaling_group",
+          "protocol": "query",
+          "action": "DeleteAutoScalingGroup",
+          "id_param": "AutoScalingGroupName",
+          "static_params": {
+            "ForceDelete": "true"
+          }
+        }
+      }
     }
   }
 }

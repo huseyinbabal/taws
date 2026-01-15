@@ -17,7 +17,19 @@
         { "header": "NODES", "json_path": "NumCacheNodes", "width": 8 }
       ],
       "sub_resources": [],
-      "actions": []
+      "actions": [],
+      "api_config": {
+        "protocol": "query",
+        "action": "DescribeCacheClusters",
+        "response_root": "/DescribeCacheClustersResponse/DescribeCacheClustersResult/CacheClusters/CacheCluster"
+      },
+      "field_mappings": {
+        "CacheClusterId": { "source": "/CacheClusterId", "default": "-" },
+        "CacheClusterStatus": { "source": "/CacheClusterStatus", "default": "-" },
+        "Engine": { "source": "/Engine", "default": "-" },
+        "CacheNodeType": { "source": "/CacheNodeType", "default": "-" },
+        "NumCacheNodes": { "source": "/NumCacheNodes", "default": "0" }
+      }
     }
   }
 }

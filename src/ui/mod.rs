@@ -2,6 +2,7 @@ mod command_box;
 mod dialog;
 mod header;
 mod help;
+mod highlight;
 mod profiles;
 mod regions;
 pub mod splash;
@@ -113,6 +114,9 @@ fn render_dynamic_table(f: &mut Frame, app: &App, area: Rect) {
         return;
     };
 
+    let query = app.filter_text.trim();
+    let highlight_filter_matches = !query.is_empty();
+
     // Build title with count, region info, and pagination
     let title = {
         let count = app.filtered_items.len();
@@ -131,7 +135,7 @@ fn render_dynamic_table(f: &mut Frame, app: &App, area: Rect) {
         };
 
         if is_global {
-            if app.filter_text.is_empty() {
+            if query.is_empty() {
                 format!(" {}[{}]{} ", resource.display_name, count, page_info)
             } else {
                 format!(
@@ -139,7 +143,7 @@ fn render_dynamic_table(f: &mut Frame, app: &App, area: Rect) {
                     resource.display_name, count, total, page_info
                 )
             }
-        } else if app.filter_text.is_empty() {
+        } else if query.is_empty() {
             format!(
                 " {}({})[{}]{} ",
                 resource.display_name, app.region, count, page_info
@@ -178,15 +182,41 @@ fn render_dynamic_table(f: &mut Frame, app: &App, area: Rect) {
     let header = Row::new(header_cells).height(1);
 
     // Build rows from filtered items with left padding
-    let rows = app.filtered_items.iter().map(|item| {
-        let cells = resource.columns.iter().map(|col| {
-            let value = extract_json_value(item, &col.json_path);
-            let style = get_cell_style(&value, col);
-            let display_value = format_cell_value(&value, col);
-            Cell::from(format!(" {}", truncate_string(&display_value, 38))).style(style)
+    let selected_row = app.selected;
+    let rows = app
+        .filtered_items
+        .iter()
+        .enumerate()
+        .map(|(row_index, item)| {
+            let is_selected = row_index == selected_row;
+            let cells = resource.columns.iter().map(|col| {
+                let value = extract_json_value(item, &col.json_path);
+                let mut style = get_cell_style(&value, col);
+                if is_selected {
+                    style = style.fg(Color::White);
+                }
+                let display_value = format_cell_value(&value, col);
+                let display_value = truncate_string(&display_value, 38);
+
+                if highlight_filter_matches
+                    && (col.json_path == resource.name_field || col.json_path == resource.id_field)
+                {
+                    let match_style = Style::default()
+                        .fg(Color::LightGreen)
+                        .add_modifier(Modifier::BOLD);
+                    highlight::fuzzy_cell(
+                        &display_value,
+                        query,
+                        &app.fuzzy_matcher,
+                        style,
+                        match_style,
+                    )
+                } else {
+                    Cell::from(format!(" {}", display_value)).style(style)
+                }
+            });
+            Row::new(cells)
         });
-        Row::new(cells)
-    });
 
     // Build column widths
     let widths: Vec<Constraint> = resource
@@ -198,7 +228,6 @@ fn render_dynamic_table(f: &mut Frame, app: &App, area: Rect) {
     let table = Table::new(rows, widths).header(header).row_highlight_style(
         Style::default()
             .bg(Color::DarkGray)
-            .fg(Color::White)
             .add_modifier(Modifier::BOLD),
     );
 
@@ -258,7 +287,7 @@ fn render_describe_view(f: &mut Frame, app: &App, area: Rect) {
         .unwrap_or_else(|| "No item selected".to_string());
 
     // Apply JSON syntax highlighting
-    let lines: Vec<Line> = json.lines().map(|l| highlight_json_line(l)).collect();
+    let lines: Vec<Line> = json.lines().map(highlight_json_line).collect();
     let total_lines = lines.len();
 
     let title = if let Some(resource) = app.current_resource() {

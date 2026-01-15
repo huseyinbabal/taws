@@ -17,9 +17,49 @@
       ],
       "sub_resources": [],
       "actions": [
-        { "key": "i", "display_name": "Invoke", "shortcut": "i", "sdk_method": "invoke_function" },
+        { "key": "i", "display_name": "Invoke", "shortcut": "i", "sdk_method": "invoke_function", "confirm": { "message": "Invoke Lambda function", "default_yes": true } },
         { "key": "ctrl+d", "display_name": "Delete", "shortcut": "ctrl+d", "sdk_method": "delete_function", "confirm": { "message": "Delete Lambda function", "default_yes": false, "destructive": true } }
-      ]
+      ],
+
+      "api_config": {
+        "protocol": "rest-json",
+        "method": "GET",
+        "path": "/2015-03-31/functions",
+        "response_root": "/Functions",
+        "pagination": {
+          "input_token": "Marker",
+          "output_token": "/NextMarker",
+          "max_results_param": "MaxItems",
+          "max_results": 50
+        }
+      },
+      "field_mappings": {
+        "FunctionName": { "source": "/FunctionName", "default": "-" },
+        "Runtime": { "source": "/Runtime", "default": "-" },
+        "MemorySize": { "source": "/MemorySize", "default": "0" },
+        "LastModified": { "source": "/LastModified", "default": "-" },
+        "Description": { "source": "/Description", "default": "-" }
+      },
+      "action_configs": {
+        "invoke_function": {
+          "action_id": "invoke_function",
+          "protocol": "rest-json",
+          "method": "POST",
+          "path": "/2015-03-31/functions/{resource_id}/invocations",
+          "body_template": "{}"
+        },
+        "delete_function": {
+          "action_id": "delete_function",
+          "protocol": "rest-json",
+          "method": "DELETE",
+          "path": "/2015-03-31/functions/{resource_id}"
+        }
+      },
+      "describe_config": {
+        "protocol": "rest-json",
+        "method": "GET",
+        "path": "/2015-03-31/functions/{resource_id}"
+      }
     }
   }
 }
