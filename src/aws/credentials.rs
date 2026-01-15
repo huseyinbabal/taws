@@ -96,7 +96,13 @@ fn load_credentials_inner(profile: &str) -> Result<Credentials, CredentialsError
         }
     }
 
-    // 2. Check if SSO is configured for this profile - if so, prioritize SSO
+    // 2. Check if profile uses AssumeRole (role_arn + source_profile)
+    if let Ok(creds) = load_with_assume_role(profile) {
+        debug!("Loaded credentials via AssumeRole for profile '{}'", profile);
+        return Ok(creds);
+    }
+
+    // 3. Check if SSO is configured for this profile - if so, prioritize SSO
     //    This ensures we don't use stale static credentials when SSO is the intended auth method
     if let Some(sso_config) = super::sso::get_sso_config(profile) {
         debug!(
@@ -121,7 +127,7 @@ fn load_credentials_inner(profile: &str) -> Result<Credentials, CredentialsError
         }
     }
 
-    // 3. Try AWS credentials file
+    // 4. Try AWS credentials file
     if let Ok(creds) = load_from_credentials_file(profile) {
         debug!(
             "Loaded credentials from credentials file for profile '{}'",
@@ -130,7 +136,7 @@ fn load_credentials_inner(profile: &str) -> Result<Credentials, CredentialsError
         return Ok(creds);
     }
 
-    // 4. Try config file with direct credentials
+    // 5. Try config file with direct credentials
     if let Ok(creds) = load_from_config_file(profile) {
         debug!(
             "Loaded credentials from config file for profile '{}'",
@@ -139,7 +145,7 @@ fn load_credentials_inner(profile: &str) -> Result<Credentials, CredentialsError
         return Ok(creds);
     }
 
-    // 5. Try IMDSv2 (EC2 instance metadata) - only for default profile
+    // 6. Try IMDSv2 (EC2 instance metadata) - only for default profile
     if profile == "default" {
         match load_from_imds() {
             Ok(creds) => {
@@ -355,6 +361,167 @@ fn load_from_sso(profile: &str) -> Result<Credentials> {
 
     Ok(credentials)
 }
+
+// =============================================================================
+// AssumeRole Support (AWS CLI Cache)
+// =============================================================================
+
+/// Load credentials from AWS CLI cache for profiles with role_arn and source_profile
+/// The AWS CLI caches assumed role credentials in ~/.aws/cli/cache/
+fn load_with_assume_role(profile: &str) -> Result<Credentials> {
+    let config_path = aws_config_dir()?.join("config");
+    let content = fs::read_to_string(&config_path)
+        .map_err(|_| anyhow!("Could not read config file"))?;
+
+    let sections = parse_ini_file(&content);
+    let section = sections
+        .get(profile)
+        .ok_or_else(|| anyhow!("Profile '{}' not found", profile))?;
+
+    // Check if this profile uses AssumeRole
+    let _role_arn = section
+        .get("role_arn")
+        .ok_or_else(|| anyhow!("No role_arn configured"))?;
+
+    let _source_profile = section
+        .get("source_profile")
+        .ok_or_else(|| anyhow!("No source_profile configured"))?;
+
+    debug!(
+        "Profile '{}' uses AssumeRole, checking AWS CLI cache",
+        profile
+    );
+
+    // Try to read from AWS CLI cache
+    read_cli_cache(profile)
+}
+
+/// Read cached credentials from AWS CLI cache directory
+/// AWS CLI stores assumed role credentials in ~/.aws/cli/cache/<hash>.json
+fn read_cli_cache(profile: &str) -> Result<Credentials> {
+    let cache_dir = aws_config_dir()?.join("cli").join("cache");
+    
+    if !cache_dir.exists() {
+        return Err(anyhow!("AWS CLI cache directory not found. Please run 'aws' command with profile '{}' first.", profile));
+    }
+
+    // Get role_arn from profile to match against cache files
+    let config_path = aws_config_dir()?.join("config");
+    let content = fs::read_to_string(&config_path)
+        .map_err(|_| anyhow!("Could not read config file"))?;
+
+    let sections = parse_ini_file(&content);
+    let section = sections
+        .get(profile)
+        .ok_or_else(|| anyhow!("Profile '{}' not found", profile))?;
+
+    let role_arn = section
+        .get("role_arn")
+        .ok_or_else(|| anyhow!("No role_arn configured"))?;
+
+    trace!("Looking for cached credentials for role_arn: {}", role_arn);
+
+    // Search through all cache files to find one matching this role_arn
+    let entries = fs::read_dir(&cache_dir)
+        .map_err(|e| anyhow!("Failed to read cache directory: {}", e))?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| anyhow!("Failed to read directory entry: {}", e))?;
+        let path = entry.path();
+
+        if path.extension().and_then(|s| s.to_str()) != Some("json") {
+            continue;
+        }
+
+        // Read and parse cache file
+        let content = match fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(_) => continue, // Skip files we can't read
+        };
+
+        let cache_data: serde_json::Value = match serde_json::from_str(&content) {
+            Ok(d) => d,
+            Err(_) => continue, // Skip invalid JSON
+        };
+
+        // Check if this cache file matches our role_arn
+        if let Some(assumed_role_arn) = cache_data
+            .get("AssumedRoleUser")
+            .and_then(|u| u.get("Arn"))
+            .and_then(|a| a.as_str())
+        {
+            // Extract role name from both ARNs and compare
+            // AssumedRoleUser ARN format: arn:aws:sts::account-id:assumed-role/role-name/session-name
+            // role_arn format: arn:aws:iam::account-id:role/role-name
+            let cache_role_name = assumed_role_arn
+                .split('/')
+                .nth(1)
+                .unwrap_or("");
+            let config_role_name = role_arn
+                .split('/')
+                .last()
+                .unwrap_or("");
+
+            let cache_account = assumed_role_arn
+                .split(':')
+                .nth(4)
+                .unwrap_or("");
+            let config_account = role_arn
+                .split(':')
+                .nth(4)
+                .unwrap_or("");
+
+            if cache_role_name == config_role_name && cache_account == config_account {
+                debug!("Found matching cache file: {:?}", path);
+
+                // Extract credentials
+                let creds = cache_data
+                    .get("Credentials")
+                    .ok_or_else(|| anyhow!("Credentials not found in cache"))?;
+
+                let access_key_id = creds
+                    .get("AccessKeyId")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow!("AccessKeyId not found"))?
+                    .to_string();
+
+                let secret_access_key = creds
+                    .get("SecretAccessKey")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow!("SecretAccessKey not found"))?
+                    .to_string();
+
+                let session_token = creds
+                    .get("SessionToken")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                // Check expiration
+                if let Some(expiration_str) = creds.get("Expiration").and_then(|v| v.as_str()) {
+                    if let Ok(expiration) = chrono::DateTime::parse_from_rfc3339(expiration_str) {
+                        if expiration <= chrono::Utc::now() {
+                            return Err(anyhow!("Cached credentials for profile '{}' have expired. Please run 'aws sts get-caller-identity --profile {}' to refresh.", profile, profile));
+                        }
+                        debug!("Using cached credentials valid until: {}", expiration);
+                    }
+                }
+
+                return Ok(Credentials {
+                    access_key_id,
+                    secret_access_key,
+                    session_token,
+                });
+            }
+        }
+    }
+
+    Err(anyhow!(
+        "No cached credentials found for profile '{}'. Please run 'aws sts get-caller-identity --profile {}' first.",
+        profile,
+        profile
+    ))
+}
+
 
 // =============================================================================
 // Process Credentials Support
