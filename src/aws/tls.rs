@@ -101,22 +101,112 @@ fn load_certificates_from_file(path: &str) -> Option<Vec<Certificate>> {
 
 /// Parse multiple certificates from PEM data
 ///
-/// reqwest's Certificate::from_pem can handle multiple certificates in a single
-/// PEM file, but returns them as a single Certificate object. For our purposes,
-/// we just need to load the bundle and add it to the client.
+/// This function parses each certificate individually from a PEM bundle.
+/// Certificates that fail validation by rustls (e.g., due to unsupported critical
+/// extensions) are filtered out using binary search for efficiency.
 fn parse_pem_certificates(pem_data: &[u8]) -> Vec<Certificate> {
-    // reqwest's from_pem handles PEM bundles with multiple certificates
-    // It will parse all certificates in the bundle into a single Certificate object
-    match Certificate::from_pem(pem_data) {
-        Ok(cert) => {
-            trace!("Parsed certificate bundle successfully");
-            vec![cert]
-        }
+    // Split PEM data into individual certificate blocks
+    let pem_str = match std::str::from_utf8(pem_data) {
+        Ok(s) => s,
         Err(e) => {
-            trace!("Failed to parse certificate bundle: {}", e);
-            vec![]
+            warn!("CA bundle is not valid UTF-8: {}", e);
+            return vec![];
+        }
+    };
+
+    // Find each certificate block (BEGIN CERTIFICATE to END CERTIFICATE)
+    let cert_marker_begin = "-----BEGIN CERTIFICATE-----";
+    let cert_marker_end = "-----END CERTIFICATE-----";
+
+    let mut all_certs = Vec::new();
+    let mut pos = 0;
+    while let Some(start) = pem_str[pos..].find(cert_marker_begin) {
+        let abs_start = pos + start;
+        if let Some(end) = pem_str[abs_start..].find(cert_marker_end) {
+            let abs_end = abs_start + end + cert_marker_end.len();
+            let cert_pem = &pem_str[abs_start..abs_end];
+
+            // Try to parse this individual certificate
+            if let Ok(cert) = Certificate::from_pem(cert_pem.as_bytes()) {
+                all_certs.push(cert);
+            }
+
+            pos = abs_end;
+        } else {
+            warn!("Malformed PEM: found BEGIN but no END marker");
+            break;
         }
     }
+
+    if all_certs.is_empty() {
+        return vec![];
+    }
+
+    // First, try all certificates together - this is the fast path
+    if validate_certificates(&all_certs) {
+        debug!(
+            "All {} certificate(s) from CA bundle are valid",
+            all_certs.len()
+        );
+        return all_certs;
+    }
+
+    // Some certificates are invalid - use binary search to find valid ones
+    debug!(
+        "Some certificates have unsupported features, filtering {} certificates...",
+        all_certs.len()
+    );
+    let valid_certs = filter_valid_certificates(all_certs);
+
+    if valid_certs.is_empty() {
+        warn!("No valid certificates found in CA bundle after filtering");
+    } else {
+        debug!(
+            "Filtered to {} valid certificate(s) (rustls compatible)",
+            valid_certs.len()
+        );
+    }
+
+    valid_certs
+}
+
+/// Validate that a set of certificates can be used by rustls together.
+fn validate_certificates(certs: &[Certificate]) -> bool {
+    let mut builder = reqwest::blocking::Client::builder();
+    for cert in certs {
+        builder = builder.add_root_certificate(cert.clone());
+    }
+    builder.build().is_ok()
+}
+
+/// Filter certificates using binary search to efficiently find valid ones.
+/// This is O(n log n) instead of O(n) individual validations.
+fn filter_valid_certificates(certs: Vec<Certificate>) -> Vec<Certificate> {
+    if certs.is_empty() {
+        return vec![];
+    }
+
+    // Base case: single certificate
+    if certs.len() == 1 {
+        if validate_certificates(&certs) {
+            return certs;
+        } else {
+            return vec![];
+        }
+    }
+
+    // If all certs in this batch are valid, return them all
+    if validate_certificates(&certs) {
+        return certs;
+    }
+
+    // Split and recurse - binary search for bad certificates
+    let mid = certs.len() / 2;
+    let (left, right) = certs.split_at(mid);
+
+    let mut valid = filter_valid_certificates(left.to_vec());
+    valid.extend(filter_valid_certificates(right.to_vec()));
+    valid
 }
 
 /// Configure a reqwest blocking client builder with custom CA certificates if available.
@@ -144,6 +234,9 @@ pub fn configure_tls_blocking(
 
     // Add custom CA certificates if configured
     if let Some(certs) = load_ca_certificates() {
+        // Keep built-in root certs AND add custom ones
+        // This ensures both AWS CAs and corporate CAs are trusted
+        builder = builder.tls_built_in_root_certs(true);
         for cert in certs {
             builder = builder.add_root_certificate(cert.clone());
         }
@@ -185,6 +278,9 @@ pub fn configure_tls_async(mut builder: reqwest::ClientBuilder) -> reqwest::Clie
 
     // Add custom CA certificates if configured
     if let Some(certs) = load_ca_certificates() {
+        // Keep built-in root certs AND add custom ones
+        // This ensures both AWS CAs and corporate CAs are trusted
+        builder = builder.tls_built_in_root_certs(true);
         for cert in certs {
             builder = builder.add_root_certificate(cert.clone());
         }
@@ -229,12 +325,11 @@ CAUw7C29C79Fv1C5qfPrmAESrciIxpg0X40KPMbp1ZWVbd4=
 
     #[test]
     fn test_parse_certificate_bundle() {
-        // reqwest's from_pem handles bundles - it returns one Certificate object
-        // that contains all certificates from the bundle
+        // Our parser handles bundles by parsing each certificate individually
         let pem = format!("{}\n{}", DIGICERT_ROOT_CA, DIGICERT_ROOT_CA);
         let certs = parse_pem_certificates(pem.as_bytes());
-        // reqwest loads the entire bundle as a single Certificate object
-        assert_eq!(certs.len(), 1, "Should load bundle as single Certificate");
+        // Each certificate should be parsed individually
+        assert_eq!(certs.len(), 2, "Should parse each certificate individually");
     }
 
     #[test]
