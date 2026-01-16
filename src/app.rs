@@ -1462,13 +1462,6 @@ impl App {
             return false;
         }
 
-        // Check if it's a Windows instance
-        let platform = extract_json_value(&item, "Platform");
-        if platform.to_lowercase() == "windows" {
-            self.show_warning("SSM shell connect is not supported for Windows instances. Use RDP or Fleet Manager instead.");
-            return false;
-        }
-
         // Check if session-manager-plugin is installed
         if !Self::is_ssm_plugin_installed() {
             self.show_warning("session-manager-plugin is not installed.\n\nhttps://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html");
