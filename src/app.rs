@@ -100,6 +100,12 @@ pub struct App {
     pub describe_data: Option<Value>, // Full resource details from describe API
     pub last_action_display_name: Option<String>,
 
+    // Describe search state
+    pub describe_search_text: String,
+    pub describe_search_active: bool,
+    pub describe_match_lines: Vec<usize>, // Line numbers containing matches
+    pub describe_current_match: usize,    // Index into match_lines
+
     // Auto-refresh
     pub last_refresh: std::time::Instant,
 
@@ -277,6 +283,10 @@ impl App {
             describe_scroll: 0,
             describe_data: None,
             last_action_display_name: None,
+            describe_search_text: String::new(),
+            describe_search_active: false,
+            describe_match_lines: Vec::new(),
+            describe_current_match: 0,
             last_refresh: std::time::Instant::now(),
             config,
             last_key_press: None,
@@ -642,6 +652,62 @@ impl App {
     pub fn describe_scroll_to_bottom(&mut self, visible_lines: usize) {
         let total = self.describe_line_count();
         self.describe_scroll = total.saturating_sub(visible_lines);
+    }
+
+    /// Clear describe search
+    pub fn clear_describe_search(&mut self) {
+        self.describe_search_text.clear();
+        self.describe_search_active = false;
+        self.describe_match_lines.clear();
+        self.describe_current_match = 0;
+    }
+
+    /// Update describe search matches
+    pub fn update_describe_search(&mut self) {
+        self.describe_match_lines.clear();
+        self.describe_current_match = 0;
+
+        if self.describe_search_text.is_empty() {
+            return;
+        }
+
+        let search_lower = self.describe_search_text.to_lowercase();
+
+        if let Some(json) = self.selected_item_json() {
+            for (line_num, line) in json.lines().enumerate() {
+                if line.to_lowercase().contains(&search_lower) {
+                    self.describe_match_lines.push(line_num);
+                }
+            }
+        }
+
+        // Jump to first match if found
+        if !self.describe_match_lines.is_empty() {
+            self.describe_scroll = self.describe_match_lines[0];
+        }
+    }
+
+    /// Jump to next search match
+    pub fn describe_next_match(&mut self) {
+        if self.describe_match_lines.is_empty() {
+            return;
+        }
+        self.describe_current_match =
+            (self.describe_current_match + 1) % self.describe_match_lines.len();
+        self.describe_scroll = self.describe_match_lines[self.describe_current_match];
+    }
+
+    /// Jump to previous search match
+    pub fn describe_prev_match(&mut self) {
+        if self.describe_match_lines.is_empty() {
+            return;
+        }
+        if self.describe_current_match == 0 {
+            self.describe_current_match = self.describe_match_lines.len() - 1;
+        } else {
+            self.describe_current_match -= 1;
+        }
+        self.describe_scroll = self.describe_match_lines[self.describe_current_match];
     }
 
     pub fn next(&mut self) {

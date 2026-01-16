@@ -393,12 +393,38 @@ fn handle_help_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
 }
 
 fn handle_describe_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
+    // If search input is active, handle text input
+    if app.describe_search_active {
+        return handle_describe_search_input(app, key);
+    }
+
     // Page size for PageUp/PageDown and Ctrl+b/Ctrl+f
     const PAGE_SIZE: usize = 20;
 
     match key.code {
-        KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('d') => {
+        KeyCode::Esc => {
+            if !app.describe_search_text.is_empty() {
+                // Clear search first
+                app.clear_describe_search();
+            } else {
+                app.exit_mode();
+            }
+        }
+        KeyCode::Char('q') | KeyCode::Char('d') => {
+            app.clear_describe_search();
             app.exit_mode();
+        }
+        // Start search with '/'
+        KeyCode::Char('/') => {
+            app.describe_search_active = true;
+        }
+        // Next match with 'n'
+        KeyCode::Char('n') => {
+            app.describe_next_match();
+        }
+        // Previous match with 'N'
+        KeyCode::Char('N') => {
+            app.describe_prev_match();
         }
         // Page down with Ctrl+f or PageDown
         KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -428,6 +454,29 @@ fn handle_describe_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
         // Go to bottom
         KeyCode::Char('G') | KeyCode::End => {
             app.describe_scroll_to_bottom(40);
+        }
+        _ => {}
+    }
+    Ok(false)
+}
+
+fn handle_describe_search_input(app: &mut App, key: KeyEvent) -> Result<bool> {
+    match key.code {
+        KeyCode::Esc => {
+            // Cancel search input, keep existing search text if any
+            app.describe_search_active = false;
+        }
+        KeyCode::Enter => {
+            // Confirm search, exit input mode
+            app.describe_search_active = false;
+        }
+        KeyCode::Backspace => {
+            app.describe_search_text.pop();
+            app.update_describe_search();
+        }
+        KeyCode::Char(c) => {
+            app.describe_search_text.push(c);
+            app.update_describe_search();
         }
         _ => {}
     }
