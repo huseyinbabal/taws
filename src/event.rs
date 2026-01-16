@@ -393,31 +393,41 @@ fn handle_help_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
 }
 
 fn handle_describe_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
+    // Page size for PageUp/PageDown and Ctrl+b/Ctrl+f
+    const PAGE_SIZE: usize = 20;
+
     match key.code {
-        KeyCode::Esc | KeyCode::Char('q') => {
+        KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('d') => {
             app.exit_mode();
         }
-        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            app.describe_scroll = app.describe_scroll.saturating_add(10);
+        // Page down with Ctrl+f or PageDown
+        KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.describe_scroll_down(PAGE_SIZE);
         }
-        KeyCode::Char('d') => {
-            app.exit_mode();
+        KeyCode::PageDown => {
+            app.describe_scroll_down(PAGE_SIZE);
         }
-        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            app.describe_scroll = app.describe_scroll.saturating_sub(10);
+        // Page up with Ctrl+b or PageUp
+        KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.describe_scroll_up(PAGE_SIZE);
         }
+        KeyCode::PageUp => {
+            app.describe_scroll_up(PAGE_SIZE);
+        }
+        // Single line navigation
         KeyCode::Char('j') | KeyCode::Down => {
-            app.describe_scroll = app.describe_scroll.saturating_add(1);
+            app.describe_scroll_down(1);
         }
         KeyCode::Char('k') | KeyCode::Up => {
-            app.describe_scroll = app.describe_scroll.saturating_sub(1);
+            app.describe_scroll_up(1);
         }
+        // Go to top
         KeyCode::Char('g') | KeyCode::Home => {
             app.describe_scroll = 0;
         }
+        // Go to bottom
         KeyCode::Char('G') | KeyCode::End => {
-            // Scroll to bottom - use a large visible_lines estimate, will be clamped in render
-            app.describe_scroll_to_bottom(50);
+            app.describe_scroll_to_bottom(40);
         }
         _ => {}
     }

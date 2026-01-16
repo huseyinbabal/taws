@@ -328,16 +328,6 @@ fn render_describe_view(f: &mut Frame, app: &App, area: Rect) {
     let paragraph = Paragraph::new(lines.clone()).scroll((scroll as u16, 0));
 
     f.render_widget(paragraph, inner_area);
-
-    // Render scrollbar if content exceeds visible area
-    if total_lines > visible_lines {
-        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
-            .begin_symbol(Some("↑"))
-            .end_symbol(Some("↓"));
-        // Use max_scroll + 1 as content length so position 0 = top, max_scroll = bottom
-        let mut scrollbar_state = ScrollbarState::new(max_scroll + visible_lines).position(scroll);
-        f.render_stateful_widget(scrollbar, inner_area, &mut scrollbar_state);
-    }
 }
 
 fn render_log_tail_view(f: &mut Frame, app: &App, area: Rect) {
@@ -429,7 +419,10 @@ fn render_log_tail_view(f: &mut Frame, app: &App, area: Rect) {
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .begin_symbol(Some("↑"))
             .end_symbol(Some("↓"));
-        let mut scrollbar_state = ScrollbarState::new(max_scroll + visible_lines).position(scroll);
+        // content_length = total_lines, position = scroll, viewport = visible_lines
+        let mut scrollbar_state = ScrollbarState::new(total_lines)
+            .position(scroll)
+            .viewport_content_length(visible_lines);
         f.render_stateful_widget(scrollbar, inner_area, &mut scrollbar_state);
     }
 }

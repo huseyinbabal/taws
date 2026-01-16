@@ -618,12 +618,24 @@ impl App {
             .unwrap_or(0)
     }
 
-    /// Clamp describe scroll to valid range
-    #[allow(dead_code)]
-    pub fn clamp_describe_scroll(&mut self, visible_lines: usize) {
+    /// Get the maximum scroll position for describe view
+    /// Uses an estimate of visible lines since we don't have access to terminal size here
+    fn describe_max_scroll(&self) -> usize {
         let total = self.describe_line_count();
-        let max_scroll = total.saturating_sub(visible_lines);
-        self.describe_scroll = self.describe_scroll.min(max_scroll);
+        // Estimate ~40 visible lines (typical terminal height minus headers/footers)
+        let visible_estimate = 40;
+        total.saturating_sub(visible_estimate)
+    }
+
+    /// Scroll describe view down by amount, clamped to max
+    pub fn describe_scroll_down(&mut self, amount: usize) {
+        let max_scroll = self.describe_max_scroll();
+        self.describe_scroll = self.describe_scroll.saturating_add(amount).min(max_scroll);
+    }
+
+    /// Scroll describe view up by amount
+    pub fn describe_scroll_up(&mut self, amount: usize) {
+        self.describe_scroll = self.describe_scroll.saturating_sub(amount);
     }
 
     /// Scroll describe view to bottom
