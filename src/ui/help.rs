@@ -36,6 +36,8 @@ pub fn render(f: &mut Frame, _app: &App) {
         create_key_line("PgDn / Ctrl+f", "Page down"),
         create_key_line("g / Home", "Go to top"),
         create_key_line("G / End", "Go to bottom"),
+        create_key_line("/", "Search in content"),
+        create_key_line("n / N", "Next/prev match"),
         create_key_line("q / Esc / d", "Close details"),
         Line::from(""),
         create_section("EC2 Actions"),
