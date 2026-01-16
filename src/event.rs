@@ -246,8 +246,10 @@ async fn handle_normal_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
                                                 &resource.service,
                                                 &action.sdk_method,
                                                 &app.clients,
-                                                &id
-                                            ).await {
+                                                &id,
+                                            )
+                                            .await
+                                            {
                                                 Ok(data) => {
                                                     app.describe_data = Some(data);
                                                     app.describe_scroll = 0;
@@ -256,7 +258,8 @@ async fn handle_normal_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
                                                     app.mode = crate::app::Mode::Describe;
                                                 }
                                                 Err(e) => {
-                                                    app.error_message = Some(format!("Action failed: {}", e));
+                                                    app.error_message =
+                                                        Some(format!("Action failed: {}", e));
                                                 }
                                             }
                                             handled = true;

@@ -712,14 +712,26 @@ pub async fn execute_action_with_result(
     match (service, action) {
         // Secrets Manager - Get Secret Value
         ("secretsmanager", "get_secret_value") => {
-            let response = clients.http.json_request("secretsmanager", "GetSecretValue", &json!({
-                "SecretId": resource_id
-            }).to_string()).await?;
+            let response = clients
+                .http
+                .json_request(
+                    "secretsmanager",
+                    "GetSecretValue",
+                    &json!({
+                        "SecretId": resource_id
+                    })
+                    .to_string(),
+                )
+                .await?;
             let json: Value = serde_json::from_str(&response)?;
             Ok(json)
         }
 
-        _ => Err(anyhow!("Unknown action with result: {}.{}", service, action)),
+        _ => Err(anyhow!(
+            "Unknown action with result: {}.{}",
+            service,
+            action
+        )),
     }
 }
 

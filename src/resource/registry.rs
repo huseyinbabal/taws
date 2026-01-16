@@ -550,10 +550,20 @@ mod tests {
             .actions
             .iter()
             .find(|a| a.sdk_method == "get_secret_value");
-        assert!(view_action.is_some(), "Secrets Manager should have get_secret_value action");
+        assert!(
+            view_action.is_some(),
+            "Secrets Manager should have get_secret_value action"
+        );
 
         let view_action = view_action.unwrap();
-        assert!(view_action.show_result, "get_secret_value action should have show_result=true");
-        assert_eq!(view_action.shortcut.as_deref(), Some("x"), "get_secret_value should use 'x' shortcut");
+        assert!(
+            view_action.show_result,
+            "get_secret_value action should have show_result=true"
+        );
+        assert_eq!(
+            view_action.shortcut.as_deref(),
+            Some("x"),
+            "get_secret_value should use 'x' shortcut"
+        );
     }
 }
