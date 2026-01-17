@@ -1,5 +1,6 @@
 mod app;
 mod aws;
+mod completion;
 mod config;
 mod event;
 mod resource;
@@ -67,6 +68,12 @@ enum Command {
         #[arg(value_enum)]
         shell: Shell,
     },
+    /// List available AWS profiles (for shell completion)
+    #[command(hide = true)]
+    ListProfiles,
+    /// List available AWS regions (for shell completion)
+    #[command(hide = true)]
+    ListRegions,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -143,11 +150,39 @@ async fn main() -> Result<()> {
     // Parse CLI arguments
     let args = Args::parse();
 
-    // Handle completion subcommand (doesn't need TUI)
-    if let Some(Command::Completion { shell }) = args.command {
-        let mut cmd = Args::command();
-        generate(shell, &mut cmd, "taws", &mut std::io::stdout());
-        return Ok(());
+    // Handle subcommands that don't need TUI
+    match &args.command {
+        Some(Command::Completion { shell }) => {
+            match shell {
+                Shell::Bash => print!("{}", completion::generate_bash()),
+                Shell::Zsh => print!("{}", completion::generate_zsh()),
+                Shell::Fish => print!("{}", completion::generate_fish()),
+                Shell::PowerShell => print!("{}", completion::generate_powershell()),
+                _ => {
+                    // Fall back to clap's default for other shells (e.g., Elvish)
+                    let mut cmd = Args::command();
+                    generate(*shell, &mut cmd, "taws", &mut std::io::stdout());
+                }
+            }
+            return Ok(());
+        }
+        Some(Command::ListProfiles) => {
+            // Output profiles for shell completion
+            if let Ok(profiles) = aws::profiles::list_profiles() {
+                for profile in profiles {
+                    println!("{}", profile);
+                }
+            }
+            return Ok(());
+        }
+        Some(Command::ListRegions) => {
+            // Output regions for shell completion
+            for region in aws::profiles::list_regions() {
+                println!("{}", region);
+            }
+            return Ok(());
+        }
+        None => {}
     }
 
     // Setup logging (keep guard alive for the duration of the program)
