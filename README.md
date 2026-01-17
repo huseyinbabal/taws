@@ -354,6 +354,8 @@ Press `:` to open the resource picker. Type to filter resources:
 
 ```
 :ec2          # EC2 Instances
+:volumes      # EBS Volumes
+:snapshots    # EBS Snapshots
 :lambda       # Lambda Functions
 :s3           # S3 Buckets
 :rds          # RDS Instances
@@ -367,11 +369,11 @@ Use `Tab` to autocomplete and `Enter` to select.
 
 ## Supported AWS Services
 
-taws supports **30 AWS services** with **49 resource types** covering 95%+ of typical AWS usage:
+taws supports **30 AWS services** with **51 resource types** covering 95%+ of typical AWS usage:
 
 | Category | Service | Resources |
 |----------|---------|-----------|
-| **Compute** | EC2 | Instances |
+| **Compute** | EC2 | Instances, Volumes, Snapshots |
 | | Lambda | Functions |
 | | ECS | Clusters, Services, Tasks |
 | | EKS | Clusters |
