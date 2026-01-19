@@ -14,7 +14,7 @@ use std::fs;
 use std::time::{Duration, SystemTime};
 use tracing::{debug, trace};
 
-use super::credentials::{aws_config_dir, Credentials};
+use super::credentials::{aws_config_dir, get_aws_config_file_path, Credentials};
 
 /// SSO configuration parsed from profile
 #[derive(Debug, Clone)]
@@ -368,7 +368,7 @@ pub fn get_role_credentials(config: &SsoConfig, access_token: &str) -> Result<Cr
 
 /// Check if SSO is configured for a profile and return config if so
 pub fn get_sso_config(profile: &str) -> Option<SsoConfig> {
-    let config_path = aws_config_dir().ok()?.join("config");
+    let config_path = get_aws_config_file_path().ok()?;
     let content = fs::read_to_string(&config_path).ok()?;
 
     parse_sso_config_from_content(profile, &content).ok()
