@@ -231,6 +231,17 @@ pub fn aws_config_dir() -> Result<PathBuf> {
         .ok_or_else(|| anyhow!("Could not find home directory"))
 }
 
+/// Get the AWS config file path, respecting AWS_CONFIG_FILE environment variable
+pub fn get_aws_config_file_path() -> Result<PathBuf> {
+    if let Ok(path) = env::var("AWS_CONFIG_FILE") {
+        return Ok(PathBuf::from(path));
+    }
+
+    dirs::home_dir()
+        .map(|h| h.join(".aws").join("config"))
+        .ok_or_else(|| anyhow!("Could not find home directory"))
+}
+
 /// Parse an INI-style file into sections
 /// Returns (profiles, sso_sessions) where sso_sessions contains [sso-session X] sections
 fn parse_ini_file(content: &str) -> HashMap<String, HashMap<String, String>> {
@@ -314,7 +325,7 @@ fn load_from_credentials_file(profile: &str) -> Result<Credentials> {
 
 /// Load credentials from ~/.aws/config (for direct credentials only)
 fn load_from_config_file(profile: &str) -> Result<Credentials> {
-    let config_path = aws_config_dir()?.join("config");
+    let config_path = get_aws_config_file_path()?;
     let content = fs::read_to_string(&config_path)
         .map_err(|_| anyhow!("Could not read {:?}", config_path))?;
 

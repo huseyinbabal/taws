@@ -238,7 +238,32 @@ async fn handle_normal_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
                                         } else if action.sdk_method == "ssm_connect" {
                                             app.request_ssm_connect();
                                             handled = true;
-                                        // Block action in readonly mode
+                                        } else if action.show_result {
+                                            // Action that displays result (e.g., get_secret_value)
+                                            // These are read-only operations (retrieve and display data),
+                                            // so they're allowed even in readonly mode
+                                            match crate::resource::execute_action_with_result(
+                                                &resource.service,
+                                                &action.sdk_method,
+                                                &app.clients,
+                                                &id,
+                                            )
+                                            .await
+                                            {
+                                                Ok(data) => {
+                                                    app.describe_data = Some(data);
+                                                    app.describe_scroll = 0;
+                                                    app.last_action_display_name =
+                                                        Some(action.display_name.clone());
+                                                    app.mode = crate::app::Mode::Describe;
+                                                }
+                                                Err(e) => {
+                                                    app.error_message =
+                                                        Some(format!("Action failed: {}", e));
+                                                }
+                                            }
+                                            handled = true;
+                                        // Block mutating actions in readonly mode
                                         } else if app.readonly {
                                             app.show_warning(
                                                 "This operation is not supported in read-only mode",
@@ -368,31 +393,90 @@ fn handle_help_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
 }
 
 fn handle_describe_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
+    // If search input is active, handle text input
+    if app.describe_search_active {
+        return handle_describe_search_input(app, key);
+    }
+
+    // Page size for PageUp/PageDown and Ctrl+b/Ctrl+f
+    const PAGE_SIZE: usize = 20;
+
     match key.code {
-        KeyCode::Esc | KeyCode::Char('q') => {
+        KeyCode::Esc => {
+            if !app.describe_search_text.is_empty() {
+                // Clear search first
+                app.clear_describe_search();
+            } else {
+                app.exit_mode();
+            }
+        }
+        KeyCode::Char('q') | KeyCode::Char('d') => {
+            app.clear_describe_search();
             app.exit_mode();
         }
-        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            app.describe_scroll = app.describe_scroll.saturating_add(10);
+        // Start search with '/'
+        KeyCode::Char('/') => {
+            app.describe_search_active = true;
         }
-        KeyCode::Char('d') => {
-            app.exit_mode();
+        // Next match with 'n'
+        KeyCode::Char('n') => {
+            app.describe_next_match();
         }
-        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-            app.describe_scroll = app.describe_scroll.saturating_sub(10);
+        // Previous match with 'N'
+        KeyCode::Char('N') => {
+            app.describe_prev_match();
         }
+        // Page down with Ctrl+f or PageDown
+        KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.describe_scroll_down(PAGE_SIZE);
+        }
+        KeyCode::PageDown => {
+            app.describe_scroll_down(PAGE_SIZE);
+        }
+        // Page up with Ctrl+b or PageUp
+        KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            app.describe_scroll_up(PAGE_SIZE);
+        }
+        KeyCode::PageUp => {
+            app.describe_scroll_up(PAGE_SIZE);
+        }
+        // Single line navigation
         KeyCode::Char('j') | KeyCode::Down => {
-            app.describe_scroll = app.describe_scroll.saturating_add(1);
+            app.describe_scroll_down(1);
         }
         KeyCode::Char('k') | KeyCode::Up => {
-            app.describe_scroll = app.describe_scroll.saturating_sub(1);
+            app.describe_scroll_up(1);
         }
+        // Go to top
         KeyCode::Char('g') | KeyCode::Home => {
             app.describe_scroll = 0;
         }
+        // Go to bottom
         KeyCode::Char('G') | KeyCode::End => {
-            // Scroll to bottom - use a large visible_lines estimate, will be clamped in render
-            app.describe_scroll_to_bottom(50);
+            app.describe_scroll_to_bottom(40);
+        }
+        _ => {}
+    }
+    Ok(false)
+}
+
+fn handle_describe_search_input(app: &mut App, key: KeyEvent) -> Result<bool> {
+    match key.code {
+        KeyCode::Esc => {
+            // Cancel search input, keep existing search text if any
+            app.describe_search_active = false;
+        }
+        KeyCode::Enter => {
+            // Confirm search, exit input mode
+            app.describe_search_active = false;
+        }
+        KeyCode::Backspace => {
+            app.describe_search_text.pop();
+            app.update_describe_search();
+        }
+        KeyCode::Char(c) => {
+            app.describe_search_text.push(c);
+            app.update_describe_search();
         }
         _ => {}
     }

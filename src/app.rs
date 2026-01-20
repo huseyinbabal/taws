@@ -98,6 +98,13 @@ pub struct App {
     pub error_message: Option<String>,
     pub describe_scroll: usize,
     pub describe_data: Option<Value>, // Full resource details from describe API
+    pub last_action_display_name: Option<String>,
+
+    // Describe search state
+    pub describe_search_text: String,
+    pub describe_search_active: bool,
+    pub describe_match_lines: Vec<usize>, // Line numbers containing matches
+    pub describe_current_match: usize,    // Index into match_lines
 
     // Auto-refresh
     pub last_refresh: std::time::Instant,
@@ -275,6 +282,11 @@ impl App {
             error_message: None,
             describe_scroll: 0,
             describe_data: None,
+            last_action_display_name: None,
+            describe_search_text: String::new(),
+            describe_search_active: false,
+            describe_match_lines: Vec::new(),
+            describe_current_match: 0,
             last_refresh: std::time::Instant::now(),
             config,
             last_key_press: None,
@@ -616,18 +628,86 @@ impl App {
             .unwrap_or(0)
     }
 
-    /// Clamp describe scroll to valid range
-    #[allow(dead_code)]
-    pub fn clamp_describe_scroll(&mut self, visible_lines: usize) {
+    /// Get the maximum scroll position for describe view
+    /// Uses an estimate of visible lines since we don't have access to terminal size here
+    fn describe_max_scroll(&self) -> usize {
         let total = self.describe_line_count();
-        let max_scroll = total.saturating_sub(visible_lines);
-        self.describe_scroll = self.describe_scroll.min(max_scroll);
+        // Estimate ~40 visible lines (typical terminal height minus headers/footers)
+        let visible_estimate = 40;
+        total.saturating_sub(visible_estimate)
+    }
+
+    /// Scroll describe view down by amount, clamped to max
+    pub fn describe_scroll_down(&mut self, amount: usize) {
+        let max_scroll = self.describe_max_scroll();
+        self.describe_scroll = self.describe_scroll.saturating_add(amount).min(max_scroll);
+    }
+
+    /// Scroll describe view up by amount
+    pub fn describe_scroll_up(&mut self, amount: usize) {
+        self.describe_scroll = self.describe_scroll.saturating_sub(amount);
     }
 
     /// Scroll describe view to bottom
     pub fn describe_scroll_to_bottom(&mut self, visible_lines: usize) {
         let total = self.describe_line_count();
         self.describe_scroll = total.saturating_sub(visible_lines);
+    }
+
+    /// Clear describe search
+    pub fn clear_describe_search(&mut self) {
+        self.describe_search_text.clear();
+        self.describe_search_active = false;
+        self.describe_match_lines.clear();
+        self.describe_current_match = 0;
+    }
+
+    /// Update describe search matches
+    pub fn update_describe_search(&mut self) {
+        self.describe_match_lines.clear();
+        self.describe_current_match = 0;
+
+        if self.describe_search_text.is_empty() {
+            return;
+        }
+
+        let search_lower = self.describe_search_text.to_lowercase();
+
+        if let Some(json) = self.selected_item_json() {
+            for (line_num, line) in json.lines().enumerate() {
+                if line.to_lowercase().contains(&search_lower) {
+                    self.describe_match_lines.push(line_num);
+                }
+            }
+        }
+
+        // Jump to first match if found
+        if !self.describe_match_lines.is_empty() {
+            self.describe_scroll = self.describe_match_lines[0];
+        }
+    }
+
+    /// Jump to next search match
+    pub fn describe_next_match(&mut self) {
+        if self.describe_match_lines.is_empty() {
+            return;
+        }
+        self.describe_current_match =
+            (self.describe_current_match + 1) % self.describe_match_lines.len();
+        self.describe_scroll = self.describe_match_lines[self.describe_current_match];
+    }
+
+    /// Jump to previous search match
+    pub fn describe_prev_match(&mut self) {
+        if self.describe_match_lines.is_empty() {
+            return;
+        }
+        if self.describe_current_match == 0 {
+            self.describe_current_match = self.describe_match_lines.len() - 1;
+        } else {
+            self.describe_current_match -= 1;
+        }
+        self.describe_scroll = self.describe_match_lines[self.describe_current_match];
     }
 
     pub fn next(&mut self) {
@@ -957,6 +1037,7 @@ impl App {
         self.mode = Mode::Normal;
         self.pending_action = None;
         self.describe_data = None; // Clear describe data when exiting
+        self.last_action_display_name = None;
     }
 
     // =========================================================================
@@ -1459,13 +1540,6 @@ impl App {
                 "Cannot connect: instance is '{}'. Instance must be running.",
                 state
             ));
-            return false;
-        }
-
-        // Check if it's a Windows instance
-        let platform = extract_json_value(&item, "Platform");
-        if platform.to_lowercase() == "windows" {
-            self.show_warning("SSM shell connect is not supported for Windows instances. Use RDP or Fleet Manager instead.");
             return false;
         }
 

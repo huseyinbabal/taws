@@ -1,5 +1,117 @@
 {
   "resources": {
+    "ec2-volumes": {
+      "display_name": "EBS Volumes",
+      "service": "ec2",
+      "sdk_method": "describe_volumes",
+      "sdk_method_params": {},
+      "response_path": "volumes",
+      "id_field": "VolumeId",
+      "name_field": "Tags.Name",
+      "is_global": false,
+      "columns": [
+        { "header": "NAME", "json_path": "Tags.Name", "width": 20 },
+        { "header": "VOLUME ID", "json_path": "VolumeId", "width": 24 },
+        { "header": "STATE", "json_path": "State", "width": 12, "color_map": "state" },
+        { "header": "SIZE (GB)", "json_path": "Size", "width": 10 },
+        { "header": "TYPE", "json_path": "VolumeType", "width": 10 },
+        { "header": "IOPS", "json_path": "Iops", "width": 8 },
+        { "header": "AZ", "json_path": "AvailabilityZone", "width": 14 },
+        { "header": "ENCRYPTED", "json_path": "Encrypted", "width": 10, "color_map": "bool" }
+      ],
+      "sub_resources": [],
+      "actions": [
+        { "key": "ctrl+d", "display_name": "Delete Volume", "shortcut": "ctrl+d", "sdk_method": "delete_volume", "confirm": { "message": "Delete EBS volume", "default_yes": false, "destructive": true } }
+      ],
+      "api_config": {
+        "protocol": "query",
+        "action": "DescribeVolumes",
+        "response_root": "/DescribeVolumesResponse/volumeSet/item"
+      },
+      "field_mappings": {
+        "VolumeId": { "source": "/volumeId", "default": "-" },
+        "State": { "source": "/status", "default": "-" },
+        "Size": { "source": "/size", "default": "0" },
+        "VolumeType": { "source": "/volumeType", "default": "-" },
+        "Iops": { "source": "/iops", "default": "-" },
+        "AvailabilityZone": { "source": "/availabilityZone", "default": "-" },
+        "Encrypted": { "source": "/encrypted", "transform": "bool_to_yes_no" },
+        "SnapshotId": { "source": "/snapshotId", "default": "-" },
+        "CreateTime": { "source": "/createTime", "default": "-" },
+        "Tags": { "source": "/tagSet/item", "transform": "tags_to_map" }
+      },
+      "action_configs": {
+        "delete_volume": {
+          "action_id": "delete_volume",
+          "protocol": "query",
+          "action": "DeleteVolume",
+          "id_param": "VolumeId"
+        }
+      },
+      "describe_config": {
+        "protocol": "query",
+        "action": "DescribeVolumes",
+        "id_param": "VolumeId.1",
+        "response_path": "/DescribeVolumesResponse/volumeSet/item"
+      }
+    },
+    "ec2-snapshots": {
+      "display_name": "EBS Snapshots",
+      "service": "ec2",
+      "sdk_method": "describe_snapshots",
+      "sdk_method_params": {},
+      "response_path": "snapshots",
+      "id_field": "SnapshotId",
+      "name_field": "Tags.Name",
+      "is_global": false,
+      "columns": [
+        { "header": "NAME", "json_path": "Tags.Name", "width": 20 },
+        { "header": "SNAPSHOT ID", "json_path": "SnapshotId", "width": 24 },
+        { "header": "STATUS", "json_path": "State", "width": 12, "color_map": "state" },
+        { "header": "VOLUME ID", "json_path": "VolumeId", "width": 24 },
+        { "header": "SIZE (GB)", "json_path": "VolumeSize", "width": 10 },
+        { "header": "PROGRESS", "json_path": "Progress", "width": 10 },
+        { "header": "STARTED", "json_path": "StartTime", "width": 20 }
+      ],
+      "sub_resources": [],
+      "actions": [
+        { "key": "ctrl+d", "display_name": "Delete Snapshot", "shortcut": "ctrl+d", "sdk_method": "delete_snapshot", "confirm": { "message": "Delete EBS snapshot", "default_yes": false, "destructive": true } }
+      ],
+      "api_config": {
+        "protocol": "query",
+        "action": "DescribeSnapshots",
+        "response_root": "/DescribeSnapshotsResponse/snapshotSet/item",
+        "static_params": {
+          "Owner.1": "self"
+        }
+      },
+      "field_mappings": {
+        "SnapshotId": { "source": "/snapshotId", "default": "-" },
+        "VolumeId": { "source": "/volumeId", "default": "-" },
+        "State": { "source": "/status", "default": "-" },
+        "VolumeSize": { "source": "/volumeSize", "default": "0" },
+        "Progress": { "source": "/progress", "default": "-" },
+        "StartTime": { "source": "/startTime", "default": "-" },
+        "Description": { "source": "/description", "default": "-" },
+        "OwnerId": { "source": "/ownerId", "default": "-" },
+        "Encrypted": { "source": "/encrypted", "transform": "bool_to_yes_no" },
+        "Tags": { "source": "/tagSet/item", "transform": "tags_to_map" }
+      },
+      "action_configs": {
+        "delete_snapshot": {
+          "action_id": "delete_snapshot",
+          "protocol": "query",
+          "action": "DeleteSnapshot",
+          "id_param": "SnapshotId"
+        }
+      },
+      "describe_config": {
+        "protocol": "query",
+        "action": "DescribeSnapshots",
+        "id_param": "SnapshotId.1",
+        "response_path": "/DescribeSnapshotsResponse/snapshotSet/item"
+      }
+    },
     "ec2-instances": {
       "display_name": "EC2 Instances",
       "service": "ec2",

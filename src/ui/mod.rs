@@ -281,17 +281,24 @@ fn truncate_string(s: &str, max_len: usize) -> String {
     }
 }
 
+fn describe_title(resource_display_name: &str, action_display_name: Option<&str>) -> String {
+    if let Some(action) = action_display_name {
+        format!(" {} ", action)
+    } else {
+        format!(" {} Details ", resource_display_name)
+    }
+}
+
 fn render_describe_view(f: &mut Frame, app: &App, area: Rect) {
     let json = app
         .selected_item_json()
         .unwrap_or_else(|| "No item selected".to_string());
 
-    // Apply JSON syntax highlighting
-    let lines: Vec<Line> = json.lines().map(highlight_json_line).collect();
-    let total_lines = lines.len();
-
     let title = if let Some(resource) = app.current_resource() {
-        format!(" {} Details ", resource.display_name)
+        describe_title(
+            &resource.display_name,
+            app.last_action_display_name.as_deref(),
+        )
     } else {
         " Details ".to_string()
     };
@@ -309,24 +316,143 @@ fn render_describe_view(f: &mut Frame, app: &App, area: Rect) {
     let inner_area = block.inner(area);
     f.render_widget(block, area);
 
-    // Calculate max scroll based on inner area (content area without borders)
-    let visible_lines = inner_area.height as usize;
+    // Split inner area for search bar if search is active or has text
+    let show_search = app.describe_search_active || !app.describe_search_text.is_empty();
+    let (content_area, search_area) = if show_search {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(1)])
+            .split(inner_area);
+        (chunks[0], Some(chunks[1]))
+    } else {
+        (inner_area, None)
+    };
+
+    // Apply JSON syntax highlighting with search match highlighting
+    let search_text = &app.describe_search_text;
+    let lines: Vec<Line> = json
+        .lines()
+        .enumerate()
+        .map(|(line_num, line)| {
+            let is_current_match = app
+                .describe_match_lines
+                .get(app.describe_current_match)
+                .map(|&m| m == line_num)
+                .unwrap_or(false);
+            highlight_json_line_with_search(line, search_text, is_current_match)
+        })
+        .collect();
+    let total_lines = lines.len();
+
+    // Calculate max scroll based on content area
+    let visible_lines = content_area.height as usize;
     let max_scroll = total_lines.saturating_sub(visible_lines);
     let scroll = app.describe_scroll.min(max_scroll);
 
     let paragraph = Paragraph::new(lines.clone()).scroll((scroll as u16, 0));
+    f.render_widget(paragraph, content_area);
 
-    f.render_widget(paragraph, inner_area);
-
-    // Render scrollbar if content exceeds visible area
-    if total_lines > visible_lines {
-        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
-            .begin_symbol(Some("↑"))
-            .end_symbol(Some("↓"));
-        // Use max_scroll + 1 as content length so position 0 = top, max_scroll = bottom
-        let mut scrollbar_state = ScrollbarState::new(max_scroll + visible_lines).position(scroll);
-        f.render_stateful_widget(scrollbar, inner_area, &mut scrollbar_state);
+    // Render search bar if active
+    if let Some(search_area) = search_area {
+        render_describe_search_bar(f, app, search_area);
     }
+}
+
+fn render_describe_search_bar(f: &mut Frame, app: &App, area: Rect) {
+    let match_info = if app.describe_match_lines.is_empty() {
+        if app.describe_search_text.is_empty() {
+            String::new()
+        } else {
+            " [no matches]".to_string()
+        }
+    } else {
+        format!(
+            " [{}/{}]",
+            app.describe_current_match + 1,
+            app.describe_match_lines.len()
+        )
+    };
+
+    let cursor = if app.describe_search_active { "_" } else { "" };
+    let search_display = format!("/{}{}{}", app.describe_search_text, cursor, match_info);
+
+    let style = if app.describe_search_active {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
+    let paragraph = Paragraph::new(Line::from(vec![Span::styled(search_display, style)]));
+    f.render_widget(paragraph, area);
+}
+
+/// Apply JSON syntax highlighting with search term highlighting
+fn highlight_json_line_with_search(
+    line: &str,
+    search_text: &str,
+    is_current_match: bool,
+) -> Line<'static> {
+    if search_text.is_empty() {
+        return highlight_json_line(line);
+    }
+
+    let line_lower = line.to_lowercase();
+    let search_lower = search_text.to_lowercase();
+
+    // If no match in this line, just use regular highlighting
+    if !line_lower.contains(&search_lower) {
+        return highlight_json_line(line);
+    }
+
+    // Build line with search highlights
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut last_end = 0;
+
+    // Find all occurrences (case-insensitive)
+    let mut search_start = 0;
+    while let Some(pos) = line_lower[search_start..].find(&search_lower) {
+        let match_start = search_start + pos;
+        let match_end = match_start + search_text.len();
+
+        // Add text before match with JSON highlighting (simplified - just use default color)
+        if match_start > last_end {
+            let before = &line[last_end..match_start];
+            // Apply simple JSON coloring to the before part
+            for span in highlight_json_line(before).spans {
+                spans.push(span);
+            }
+        }
+
+        // Add matched text with highlight
+        let matched = &line[match_start..match_end];
+        let highlight_style = if is_current_match {
+            Style::default()
+                .bg(Color::Yellow)
+                .fg(Color::Black)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+                .bg(Color::DarkGray)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD)
+        };
+        spans.push(Span::styled(matched.to_string(), highlight_style));
+
+        last_end = match_end;
+        search_start = match_end;
+    }
+
+    // Add remaining text after last match
+    if last_end < line.len() {
+        let after = &line[last_end..];
+        for span in highlight_json_line(after).spans {
+            spans.push(span);
+        }
+    }
+
+    Line::from(spans)
 }
 
 fn render_log_tail_view(f: &mut Frame, app: &App, area: Rect) {
@@ -418,7 +544,10 @@ fn render_log_tail_view(f: &mut Frame, app: &App, area: Rect) {
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .begin_symbol(Some("↑"))
             .end_symbol(Some("↓"));
-        let mut scrollbar_state = ScrollbarState::new(max_scroll + visible_lines).position(scroll);
+        // content_length = total_lines, position = scroll, viewport = visible_lines
+        let mut scrollbar_state = ScrollbarState::new(total_lines)
+            .position(scroll)
+            .viewport_content_length(visible_lines);
         f.render_stateful_widget(scrollbar, inner_area, &mut scrollbar_state);
     }
 }
@@ -574,7 +703,13 @@ fn render_crumb(f: &mut Frame, app: &App, area: Rect) {
     } else if app.loading {
         "Loading...".to_string()
     } else if app.mode == Mode::Describe {
-        "j/k: scroll | q/d/Esc: back".to_string()
+        if app.describe_search_active {
+            "Type to search | Enter: confirm | Esc: cancel".to_string()
+        } else if !app.describe_search_text.is_empty() {
+            "n/N: next/prev match | /: new search | Esc: clear".to_string()
+        } else {
+            "j/k: scroll | /: search | q/d/Esc: back".to_string()
+        }
     } else if app.mode == Mode::LogTail {
         "j/k: scroll | G: bottom (live) | g: top | SPACE: pause | q: exit".to_string()
     } else if app.filter_active {
@@ -602,4 +737,21 @@ fn render_crumb(f: &mut Frame, app: &App, area: Rect) {
 
     let paragraph = Paragraph::new(crumb);
     f.render_widget(paragraph, area);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::describe_title;
+
+    #[test]
+    fn describe_title_uses_action_display_name_when_present() {
+        let title = describe_title("Secrets Manager Secrets", Some("Secret Value"));
+        assert_eq!(title, " Secret Value ");
+    }
+
+    #[test]
+    fn describe_title_falls_back_to_resource_details() {
+        let title = describe_title("EC2 Instances", None);
+        assert_eq!(title, " EC2 Instances Details ");
+    }
 }

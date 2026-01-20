@@ -294,6 +294,26 @@ AWS_ENDPOINT_URL=http://localhost:4566 taws
 | **macOS** | `~/Library/Application Support/taws/taws.log` |
 | **Windows** | `%APPDATA%\taws\taws.log` |
 
+### Shell Completion
+
+taws supports shell completion for bash, zsh, fish, and PowerShell.
+
+```bash
+# Bash (add to ~/.bashrc)
+eval "$(taws completion bash)"
+
+# Zsh (add to ~/.zshrc)
+eval "$(taws completion zsh)"
+
+# Fish (add to ~/.config/fish/config.fish)
+taws completion fish | source
+
+# PowerShell (add to $PROFILE)
+taws completion powershell | Out-String | Invoke-Expression
+```
+
+After adding the completion script, restart your shell or source the config file.
+
 ---
 
 ## Key Bindings
@@ -334,6 +354,8 @@ Press `:` to open the resource picker. Type to filter resources:
 
 ```
 :ec2          # EC2 Instances
+:volumes      # EBS Volumes
+:snapshots    # EBS Snapshots
 :lambda       # Lambda Functions
 :s3           # S3 Buckets
 :rds          # RDS Instances
@@ -347,11 +369,11 @@ Use `Tab` to autocomplete and `Enter` to select.
 
 ## Supported AWS Services
 
-taws supports **30 AWS services** with **49 resource types** covering 95%+ of typical AWS usage:
+taws supports **30 AWS services** with **51 resource types** covering 95%+ of typical AWS usage:
 
 | Category | Service | Resources |
 |----------|---------|-----------|
-| **Compute** | EC2 | Instances |
+| **Compute** | EC2 | Instances, Volumes, Snapshots |
 | | Lambda | Functions |
 | | ECS | Clusters, Services, Tasks |
 | | EKS | Clusters |

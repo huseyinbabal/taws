@@ -107,6 +107,9 @@ pub struct ActionDef {
     /// Confirmation configuration
     #[serde(default)]
     pub confirm: Option<ConfirmConfig>,
+    /// If true, display the action result in the JSON viewer instead of just executing
+    #[serde(default)]
+    pub show_result: bool,
 }
 
 impl ActionDef {
@@ -533,5 +536,34 @@ mod tests {
         let color = get_color_for_value("health", "healthy");
         assert!(color.is_some(), "Should have color for 'healthy' state");
         assert_eq!(color.unwrap(), [0, 255, 0]); // Green color
+    }
+
+    #[test]
+    fn test_secretsmanager_has_view_value_action() {
+        let resource = get_resource("secretsmanager-secrets").unwrap();
+        assert!(
+            !resource.actions.is_empty(),
+            "Secrets Manager should have actions"
+        );
+
+        let view_action = resource
+            .actions
+            .iter()
+            .find(|a| a.sdk_method == "get_secret_value");
+        assert!(
+            view_action.is_some(),
+            "Secrets Manager should have get_secret_value action"
+        );
+
+        let view_action = view_action.unwrap();
+        assert!(
+            view_action.show_result,
+            "get_secret_value action should have show_result=true"
+        );
+        assert_eq!(
+            view_action.shortcut.as_deref(),
+            Some("x"),
+            "get_secret_value should use 'x' shortcut"
+        );
     }
 }
