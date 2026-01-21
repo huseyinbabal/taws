@@ -213,6 +213,14 @@ fn render_dynamic_table(f: &mut Frame, app: &App, area: Rect) {
     let inner_area = block.inner(area);
     f.render_widget(block, area);
 
+    // Calculate actual column widths in characters based on inner area and percentages
+    let total_width = inner_area.width as usize;
+    let column_widths: Vec<usize> = resource
+        .columns
+        .iter()
+        .map(|col| (total_width * col.width as usize) / 100)
+        .collect();
+
     // Build header from column definitions with left padding
     let header_cells = resource.columns.iter().map(|col| {
         Cell::from(format!(" {}", col.header)).style(
@@ -225,20 +233,27 @@ fn render_dynamic_table(f: &mut Frame, app: &App, area: Rect) {
 
     // Build rows from filtered items with left padding
     let selected_row = app.selected;
+    let column_widths_clone = column_widths.clone();
     let rows = app
         .filtered_items
         .iter()
         .enumerate()
         .map(|(row_index, item)| {
             let is_selected = row_index == selected_row;
-            let cells = resource.columns.iter().map(|col| {
+            let cells = resource.columns.iter().enumerate().map(|(col_idx, col)| {
                 let value = extract_json_value(item, &col.json_path);
                 let mut style = get_cell_style(&value, col);
                 if is_selected {
                     style = style.fg(Color::White);
                 }
                 let display_value = format_cell_value(&value, col);
-                let display_value = truncate_string(&display_value, 38);
+                // Use actual column width for truncation (subtract 2 for padding/border)
+                let max_width = column_widths_clone
+                    .get(col_idx)
+                    .copied()
+                    .unwrap_or(38)
+                    .saturating_sub(2);
+                let display_value = truncate_string(&display_value, max_width);
 
                 if highlight_filter_matches
                     && (col.json_path == resource.name_field || col.json_path == resource.id_field)
