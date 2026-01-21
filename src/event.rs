@@ -160,9 +160,12 @@ async fn handle_normal_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
         KeyCode::Char('d') => app.enter_describe_mode().await,
         KeyCode::Enter => app.enter_describe_mode().await,
 
-        // Filter toggle
+        // Filter toggle - clears any existing tag filter and starts fresh
         KeyCode::Char('/') => {
-            app.toggle_filter();
+            if app.start_new_filter() {
+                // Tag filter was cleared, need to refresh to remove server-side filter
+                app.refresh_current().await?;
+            }
         }
 
         // Pagination - next/previous page of results (using ] and [ to avoid conflicts with sub-resource shortcuts)
@@ -361,6 +364,14 @@ async fn handle_filter_input(app: &mut App, key: KeyEvent) -> Result<bool> {
             app.filter_text.pop();
             // Update autocomplete state
             app.tag_filter_autocomplete_shown = app.should_show_tag_autocomplete();
+            app.apply_filter();
+        }
+        KeyCode::Char('/') => {
+            // Pressing '/' again clears and restarts the filter (including tag filter)
+            if app.start_new_filter() {
+                // Tag filter was cleared, need to refresh to remove server-side filter
+                app.refresh_current().await?;
+            }
             app.apply_filter();
         }
         KeyCode::Char(c) => {

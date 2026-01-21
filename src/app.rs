@@ -613,8 +613,18 @@ impl App {
         }
     }
 
-    pub fn toggle_filter(&mut self) {
-        self.filter_active = !self.filter_active;
+    /// Start a new filter, clearing any existing tag filter
+    /// Returns true if a refresh is needed (tag filter was cleared)
+    pub fn start_new_filter(&mut self) -> bool {
+        let needs_refresh = self.tag_filter.is_some();
+        self.filter_text.clear();
+        self.tag_filter = None;
+        self.tag_filter_autocomplete_shown = false;
+        self.filter_active = true;
+        if needs_refresh {
+            self.reset_pagination();
+        }
+        needs_refresh
     }
 
     pub fn clear_filter(&mut self) {
