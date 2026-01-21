@@ -15,7 +15,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{
         Block, Borders, Cell, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState,
-        Table, TableState,
+        Table, TableState, Wrap,
     },
     Frame,
 };
@@ -238,12 +238,7 @@ fn render_dynamic_table(f: &mut Frame, app: &App, area: Rect) {
                     style = style.fg(Color::White);
                 }
                 let display_value = format_cell_value(&value, col);
-                // Show full value for selected row, truncate others
-                let display_value = if is_selected {
-                    display_value
-                } else {
-                    truncate_string(&display_value, 38)
-                };
+                let display_value = truncate_string(&display_value, 38);
 
                 if highlight_filter_matches
                     && (col.json_path == resource.name_field || col.json_path == resource.id_field)
@@ -400,7 +395,9 @@ fn render_describe_view(f: &mut Frame, app: &App, area: Rect) {
     let max_scroll = total_lines.saturating_sub(visible_lines);
     let scroll = app.describe_scroll.min(max_scroll);
 
-    let paragraph = Paragraph::new(lines.clone()).scroll((scroll as u16, 0));
+    let paragraph = Paragraph::new(lines.clone())
+        .wrap(Wrap { trim: false })
+        .scroll((scroll as u16, 0));
     f.render_widget(paragraph, content_area);
 
     // Render search bar if active
