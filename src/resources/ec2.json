@@ -53,6 +53,9 @@
         "action": "DescribeVolumes",
         "id_param": "VolumeId.1",
         "response_path": "/DescribeVolumesResponse/volumeSet/item"
+      },
+      "tag_filter": {
+        "enabled": true
       }
     },
     "ec2-snapshots": {
@@ -110,6 +113,9 @@
         "action": "DescribeSnapshots",
         "id_param": "SnapshotId.1",
         "response_path": "/DescribeSnapshotsResponse/snapshotSet/item"
+      },
+      "tag_filter": {
+        "enabled": true
       }
     },
     "ec2-instances": {
@@ -185,6 +191,9 @@
         "action": "DescribeInstances",
         "id_param": "InstanceId.1",
         "response_path": "/DescribeInstancesResponse/reservationSet/item/instancesSet/item"
+      },
+      "tag_filter": {
+        "enabled": true
       }
     }
   }

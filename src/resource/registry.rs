@@ -87,6 +87,14 @@ pub struct ConfirmConfig {
     pub destructive: bool,
 }
 
+/// Tag filter configuration for resources that support AWS tag-based filtering
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct TagFilterConfig {
+    /// Whether this resource supports tag filtering via AWS API
+    #[serde(default)]
+    pub enabled: bool,
+}
+
 /// Action definition from JSON
 #[derive(Debug, Clone, Deserialize)]
 pub struct ActionDef {
@@ -181,12 +189,25 @@ pub struct ResourceDef {
     /// For fetching single resource details
     #[serde(default)]
     pub describe_config: Option<DescribeConfig>,
+
+    /// Tag filter configuration
+    /// If present and enabled, the resource supports AWS API tag filtering
+    #[serde(default)]
+    pub tag_filter: Option<TagFilterConfig>,
 }
 
 impl ResourceDef {
     /// Check if this resource has API config for list operations
     pub fn has_api_config(&self) -> bool {
         self.api_config.is_some() && !self.field_mappings.is_empty()
+    }
+
+    /// Check if this resource supports tag filtering via AWS API
+    pub fn supports_tag_filter(&self) -> bool {
+        self.tag_filter
+            .as_ref()
+            .map(|tf| tf.enabled)
+            .unwrap_or(false)
     }
 }
 

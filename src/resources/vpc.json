@@ -34,6 +34,9 @@
         "IsDefault": { "source": "/isDefault", "transform": "bool_to_yes_no" },
         "InstanceTenancy": { "source": "/instanceTenancy", "default": "-" },
         "Tags": { "source": "/tagSet/item", "transform": "tags_to_map" }
+      },
+      "tag_filter": {
+        "enabled": true
       }
     },
     "subnets": {
@@ -69,6 +72,9 @@
         "AvailabilityZone": { "source": "/availabilityZone", "default": "-" },
         "AvailableIpAddressCount": { "source": "/availableIpAddressCount", "default": "0" },
         "Tags": { "source": "/tagSet/item", "transform": "tags_to_map" }
+      },
+      "tag_filter": {
+        "enabled": true
       }
     },
     "security-groups": {
@@ -99,6 +105,9 @@
         "VpcId": { "source": "/vpcId", "default": "-" },
         "Description": { "source": "/groupDescription", "default": "-" },
         "OwnerId": { "source": "/ownerId", "default": "-" }
+      },
+      "tag_filter": {
+        "enabled": true
       }
     }
   }

@@ -71,8 +71,8 @@ pub fn render(f: &mut Frame, app: &App) {
 }
 
 fn render_main_content(f: &mut Frame, app: &App, area: Rect) {
-    // If filter is active or has text, show filter input above table
-    let show_filter = app.filter_active || !app.filter_text.is_empty();
+    // If filter is active, has text, or has active tag filter, show filter bar
+    let show_filter = app.filter_active || !app.filter_text.is_empty() || app.tag_filter.is_some();
 
     if show_filter {
         let chunks = Layout::default()
@@ -88,21 +88,63 @@ fn render_main_content(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_filter_bar(f: &mut Frame, app: &App, area: Rect) {
-    let cursor_style = if app.filter_active {
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::DarkGray)
-    };
+    let mut spans: Vec<Span> = Vec::new();
 
-    let filter_display = if app.filter_active {
-        format!("/{}_", app.filter_text)
-    } else {
-        format!("/{}", app.filter_text)
-    };
+    // Show active tag filter if present (server-side filter)
+    if let Some(tag_display) = app.tag_filter_display() {
+        spans.push(Span::styled(
+            format!("[{}] ", tag_display),
+            Style::default()
+                .fg(Color::Magenta)
+                .add_modifier(Modifier::BOLD),
+        ));
+        spans.push(Span::styled(
+            "(Esc to clear)",
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
 
-    let paragraph = Paragraph::new(Line::from(vec![Span::styled(filter_display, cursor_style)]));
+    // Show filter input if active or has text
+    if app.filter_active || !app.filter_text.is_empty() {
+        let cursor_style = if app.filter_active {
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+
+        let filter_display = if app.filter_active {
+            format!("/{}_", app.filter_text)
+        } else {
+            format!("/{}", app.filter_text)
+        };
+
+        spans.push(Span::styled(filter_display, cursor_style));
+
+        // Show autocomplete hint for tag filter
+        if app.tag_filter_autocomplete_shown {
+            let remaining = &"Tag:"[app.filter_text.len()..];
+            spans.push(Span::styled(
+                remaining.to_string(),
+                Style::default().fg(Color::DarkGray),
+            ));
+            spans.push(Span::styled(
+                " (Tab to complete)",
+                Style::default().fg(Color::Cyan),
+            ));
+        }
+
+        // Show hint for tag filter format when typing Tag:
+        if app.filter_text.to_lowercase().starts_with("tag:") && !app.filter_text.contains('=') {
+            spans.push(Span::styled(
+                " key=value",
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+    }
+
+    let paragraph = Paragraph::new(Line::from(spans));
     f.render_widget(paragraph, area);
 }
 
@@ -713,7 +755,15 @@ fn render_crumb(f: &mut Frame, app: &App, area: Rect) {
     } else if app.mode == Mode::LogTail {
         "j/k: scroll | G: bottom (live) | g: top | SPACE: pause | q: exit".to_string()
     } else if app.filter_active {
-        "Type to filter | Enter: apply | Esc: clear".to_string()
+        if app.filter_text.to_lowercase().starts_with("tag:") {
+            "Tag:key=value | Enter: apply server-side filter | Esc: clear".to_string()
+        } else if app.tag_filter_autocomplete_shown {
+            "Tab: complete 'Tag:' | Type to filter locally | Esc: clear".to_string()
+        } else if app.current_resource_supports_tag_filter() {
+            "Type 'T' for tag filter | Type to filter locally | Esc: clear".to_string()
+        } else {
+            "Type to filter | Enter: apply | Esc: clear".to_string()
+        }
     } else {
         format!("{}{}", shortcuts_hint, pagination_hint)
     };

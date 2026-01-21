@@ -38,11 +38,33 @@ impl QueryProtocolHandler {
             }
         }
 
+        // Track filter index for tag filters
+        let mut filter_index = 1;
+
         // Add dynamic params
         if let Value::Object(map) = params {
             for (key, value) in map {
                 // Skip internal params
                 if key.starts_with('_') {
+                    continue;
+                }
+
+                // Handle tag filters specially (format: "tag:KeyName" -> Filter.N.Name=tag:KeyName, Filter.N.Value.1=value)
+                if key.starts_with("tag:") {
+                    if let Value::Array(arr) = value {
+                        // Add Filter.N.Name=tag:KeyName
+                        query_params.push((format!("Filter.{}.Name", filter_index), key.clone()));
+                        // Add Filter.N.Value.M for each value
+                        for (i, item) in arr.iter().enumerate() {
+                            if let Some(s) = item.as_str() {
+                                query_params.push((
+                                    format!("Filter.{}.Value.{}", filter_index, i + 1),
+                                    s.to_string(),
+                                ));
+                            }
+                        }
+                        filter_index += 1;
+                    }
                     continue;
                 }
 

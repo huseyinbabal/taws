@@ -55,6 +55,15 @@ pub struct ParentContext {
     pub display_name: String,
 }
 
+/// Tag filter for server-side filtering
+#[derive(Debug, Clone)]
+pub struct TagFilter {
+    /// Tag key (e.g., "Environment", "team")
+    pub key: String,
+    /// Tag value (e.g., "production", "dev")
+    pub value: String,
+}
+
 pub struct App {
     // AWS Clients
     pub clients: AwsClients,
@@ -71,6 +80,10 @@ pub struct App {
     pub mode: Mode,
     pub filter_text: String,
     pub filter_active: bool,
+
+    // Tag filter state
+    pub tag_filter: Option<TagFilter>,
+    pub tag_filter_autocomplete_shown: bool,
 
     // Hierarchical navigation
     pub parent_context: Option<ParentContext>,
@@ -265,6 +278,8 @@ impl App {
             mode: Mode::Normal,
             filter_text: String::new(),
             filter_active: false,
+            tag_filter: None,
+            tag_filter_autocomplete_shown: false,
             parent_context: None,
             navigation_stack: Vec::new(),
             command_text: String::new(),
@@ -435,18 +450,27 @@ impl App {
         self.pagination = PaginationState::default();
     }
 
-    /// Build AWS filters from parent context
+    /// Build AWS filters from parent context and tag filters
     /// For S3, this collects both bucket_names and prefix from navigation stack
     fn build_filters_from_context(&self) -> Vec<ResourceFilter> {
+        let mut filters = Vec::new();
+
+        // Add tag filter if present
+        if let Some(ref tag_filter) = self.tag_filter {
+            // EC2/VPC style tag filter: Filter.N.Name=tag:KEY, Filter.N.Value.1=VALUE
+            filters.push(ResourceFilter::new(
+                &format!("tag:{}", tag_filter.key),
+                vec![tag_filter.value.clone()],
+            ));
+        }
+
         let Some(parent) = &self.parent_context else {
-            return Vec::new();
+            return filters;
         };
 
         let Some(_resource) = self.current_resource() else {
-            return Vec::new();
+            return filters;
         };
-
-        let mut filters = Vec::new();
 
         // For S3 objects, we need to collect filters from entire navigation stack
         // to preserve bucket_names while adding prefix
@@ -589,14 +613,82 @@ impl App {
         }
     }
 
-    pub fn toggle_filter(&mut self) {
-        self.filter_active = !self.filter_active;
+    /// Start a new filter, clearing any existing tag filter
+    /// Returns true if a refresh is needed (tag filter was cleared)
+    pub fn start_new_filter(&mut self) -> bool {
+        let needs_refresh = self.tag_filter.is_some();
+        self.filter_text.clear();
+        self.tag_filter = None;
+        self.tag_filter_autocomplete_shown = false;
+        self.filter_active = true;
+        if needs_refresh {
+            self.reset_pagination();
+        }
+        needs_refresh
     }
 
     pub fn clear_filter(&mut self) {
         self.filter_text.clear();
         self.filter_active = false;
+        self.tag_filter = None;
+        self.tag_filter_autocomplete_shown = false;
         self.apply_filter();
+    }
+
+    /// Check if the current resource supports tag filtering via AWS API
+    pub fn current_resource_supports_tag_filter(&self) -> bool {
+        self.current_resource()
+            .map(|r| r.supports_tag_filter())
+            .unwrap_or(false)
+    }
+
+    /// Parse a tag filter from filter text (format: "Tag:key=value")
+    /// Returns Some((key, value)) if valid tag filter syntax
+    pub fn parse_tag_filter(text: &str) -> Option<(String, String)> {
+        let text = text.trim();
+        if !text.starts_with("Tag:") && !text.starts_with("tag:") {
+            return None;
+        }
+
+        // Extract the part after "Tag:"
+        let tag_part = &text[4..];
+
+        // Look for key=value pattern
+        if let Some(eq_pos) = tag_part.find('=') {
+            let key = tag_part[..eq_pos].trim().to_string();
+            let value = tag_part[eq_pos + 1..].trim().to_string();
+            if !key.is_empty() && !value.is_empty() {
+                return Some((key, value));
+            }
+        }
+
+        None
+    }
+
+    /// Check if filter text should trigger tag autocomplete (just "T" or "Ta" or "Tag")
+    pub fn should_show_tag_autocomplete(&self) -> bool {
+        if !self.current_resource_supports_tag_filter() {
+            return false;
+        }
+        let text = self.filter_text.trim().to_lowercase();
+        !text.is_empty() && "tag:".starts_with(&text) && !text.contains(':')
+    }
+
+    /// Clear just the tag filter and refresh
+    pub async fn clear_tag_filter(&mut self) -> anyhow::Result<()> {
+        if self.tag_filter.is_some() {
+            self.tag_filter = None;
+            self.reset_pagination();
+            self.refresh_current().await?;
+        }
+        Ok(())
+    }
+
+    /// Get a display string for the current tag filter
+    pub fn tag_filter_display(&self) -> Option<String> {
+        self.tag_filter
+            .as_ref()
+            .map(|tf| format!("Tag:{}={}", tf.key, tf.value))
     }
 
     // =========================================================================
@@ -1571,5 +1663,55 @@ impl App {
     /// Take the SSM connect request (clears it)
     pub fn take_ssm_connect_request(&mut self) -> Option<SsmConnectRequest> {
         self.ssm_connect_request.take()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_tag_filter_valid() {
+        let result = App::parse_tag_filter("Tag:Environment=production");
+        assert_eq!(
+            result,
+            Some(("Environment".to_string(), "production".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_parse_tag_filter_lowercase() {
+        let result = App::parse_tag_filter("tag:team=dev");
+        assert_eq!(result, Some(("team".to_string(), "dev".to_string())));
+    }
+
+    #[test]
+    fn test_parse_tag_filter_with_spaces() {
+        let result = App::parse_tag_filter("  Tag: Name = my-server  ");
+        assert_eq!(result, Some(("Name".to_string(), "my-server".to_string())));
+    }
+
+    #[test]
+    fn test_parse_tag_filter_invalid_no_value() {
+        let result = App::parse_tag_filter("Tag:Environment=");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_parse_tag_filter_invalid_no_key() {
+        let result = App::parse_tag_filter("Tag:=production");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_parse_tag_filter_invalid_no_equals() {
+        let result = App::parse_tag_filter("Tag:Environment");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_parse_tag_filter_not_tag_prefix() {
+        let result = App::parse_tag_filter("production");
+        assert_eq!(result, None);
     }
 }
