@@ -15,7 +15,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{
         Block, Borders, Cell, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState,
-        Table, TableState,
+        Table, TableState, Wrap,
     },
     Frame,
 };
@@ -213,6 +213,15 @@ fn render_dynamic_table(f: &mut Frame, app: &App, area: Rect) {
     let inner_area = block.inner(area);
     f.render_widget(block, area);
 
+    // Calculate actual column widths in characters based on inner area and percentages
+    // Note: inner_area.width is already the usable width inside the border
+    let total_width = inner_area.width.saturating_sub(2) as usize; // subtract for table borders
+    let column_widths: Vec<usize> = resource
+        .columns
+        .iter()
+        .map(|col| (total_width * col.width as usize) / 100)
+        .collect();
+
     // Build header from column definitions with left padding
     let header_cells = resource.columns.iter().map(|col| {
         Cell::from(format!(" {}", col.header)).style(
@@ -225,20 +234,34 @@ fn render_dynamic_table(f: &mut Frame, app: &App, area: Rect) {
 
     // Build rows from filtered items with left padding
     let selected_row = app.selected;
+    let column_widths_clone = column_widths.clone();
     let rows = app
         .filtered_items
         .iter()
         .enumerate()
         .map(|(row_index, item)| {
             let is_selected = row_index == selected_row;
-            let cells = resource.columns.iter().map(|col| {
+            let cells = resource.columns.iter().enumerate().map(|(col_idx, col)| {
                 let value = extract_json_value(item, &col.json_path);
                 let mut style = get_cell_style(&value, col);
                 if is_selected {
                     style = style.fg(Color::White);
                 }
                 let display_value = format_cell_value(&value, col);
-                let display_value = truncate_string(&display_value, 38);
+                // Truncate from beginning to show the end (more meaningful for paths/names)
+                // The column width from percentage doesn't account for inter-column spacing,
+                // so we use 80% of calculated width to be safe
+                let col_width = column_widths_clone.get(col_idx).copied().unwrap_or(40);
+                let usable_width = (col_width * 80) / 100;
+                let display_value = if display_value.chars().count() > usable_width {
+                    let chars: Vec<char> = display_value.chars().collect();
+                    let keep_chars = usable_width.saturating_sub(3); // 3 for "..."
+                    let start = chars.len().saturating_sub(keep_chars);
+                    let truncated: String = chars[start..].iter().collect();
+                    format!("...{}", truncated)
+                } else {
+                    display_value
+                };
 
                 if highlight_filter_matches
                     && (col.json_path == resource.name_field || col.json_path == resource.id_field)
@@ -314,15 +337,6 @@ fn format_cell_value(value: &str, col: &ColumnDef) -> String {
     value.to_string()
 }
 
-/// Truncate string for display
-fn truncate_string(s: &str, max_len: usize) -> String {
-    if s.len() > max_len {
-        format!("{}...", &s[..max_len.saturating_sub(3)])
-    } else {
-        s.to_string()
-    }
-}
-
 fn describe_title(resource_display_name: &str, action_display_name: Option<&str>) -> String {
     if let Some(action) = action_display_name {
         format!(" {} ", action)
@@ -391,7 +405,9 @@ fn render_describe_view(f: &mut Frame, app: &App, area: Rect) {
     let max_scroll = total_lines.saturating_sub(visible_lines);
     let scroll = app.describe_scroll.min(max_scroll);
 
-    let paragraph = Paragraph::new(lines.clone()).scroll((scroll as u16, 0));
+    let paragraph = Paragraph::new(lines.clone())
+        .wrap(Wrap { trim: false })
+        .scroll((scroll as u16, 0));
     f.render_widget(paragraph, content_area);
 
     // Render search bar if active
