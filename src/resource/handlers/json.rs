@@ -45,7 +45,16 @@ impl JsonProtocolHandler {
                         .get(key)
                         .cloned()
                         .unwrap_or_else(|| key.clone());
-                    body.insert(mapped_key, value.clone());
+
+                    // Unwrap single-element arrays to single values
+                    // This is needed because filters are passed as arrays, but JSON protocol
+                    // APIs typically expect single values (e.g., logGroupName: "name" not ["name"])
+                    let unwrapped_value = match value {
+                        Value::Array(arr) if arr.len() == 1 => arr[0].clone(),
+                        _ => value.clone(),
+                    };
+
+                    body.insert(mapped_key, unwrapped_value);
                 }
             }
         }

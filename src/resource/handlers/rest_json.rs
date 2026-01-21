@@ -77,7 +77,12 @@ impl RestJsonProtocolHandler {
             if let Value::Object(map) = params {
                 for (key, value) in map {
                     if !key.starts_with('_') {
-                        body.insert(key.clone(), value.clone());
+                        // Unwrap single-element arrays to single values
+                        let unwrapped_value = match value {
+                            Value::Array(arr) if arr.len() == 1 => arr[0].clone(),
+                            _ => value.clone(),
+                        };
+                        body.insert(key.clone(), unwrapped_value);
                     }
                 }
             }
