@@ -194,6 +194,11 @@ pub struct ResourceDef {
     /// If present and enabled, the resource supports AWS API tag filtering
     #[serde(default)]
     pub tag_filter: Option<TagFilterConfig>,
+
+    /// If true, this resource requires a parent context and cannot be accessed directly
+    /// Used for sub-resources like Log Streams that need a Log Group
+    #[serde(default)]
+    pub requires_parent: bool,
 }
 
 impl ResourceDef {
@@ -248,11 +253,13 @@ pub fn get_resource(key: &str) -> Option<&'static ResourceDef> {
 }
 
 /// Get all resource keys (for autocomplete)
+/// Excludes resources that require a parent context (like log-streams, ecs-tasks, etc.)
 pub fn get_all_resource_keys() -> Vec<&'static str> {
     get_registry()
         .resources
-        .keys()
-        .map(|s| s.as_str())
+        .iter()
+        .filter(|(_, def)| !def.requires_parent)
+        .map(|(key, _)| key.as_str())
         .collect()
 }
 

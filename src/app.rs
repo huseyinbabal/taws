@@ -1422,17 +1422,40 @@ impl App {
             }
             _ => {
                 // Check if it's a known resource
-                if get_resource(cmd).is_some() {
-                    // Check if it's a sub-resource of current
-                    if let Some(resource) = self.current_resource() {
-                        let is_sub = resource.sub_resources.iter().any(|s| s.resource_key == cmd);
-                        if is_sub && self.selected_item().is_some() {
-                            self.navigate_to_sub_resource(cmd).await?;
+                if let Some(target_resource) = get_resource(cmd) {
+                    // Check if the target resource requires a parent
+                    if target_resource.requires_parent {
+                        // Check if it's a sub-resource of current and we have a selected item
+                        if let Some(resource) = self.current_resource() {
+                            let is_sub =
+                                resource.sub_resources.iter().any(|s| s.resource_key == cmd);
+                            if is_sub && self.selected_item().is_some() {
+                                self.navigate_to_sub_resource(cmd).await?;
+                            } else {
+                                self.error_message = Some(format!(
+                                    "'{}' requires a parent resource. Navigate to the parent first and select an item.",
+                                    target_resource.display_name
+                                ));
+                            }
+                        } else {
+                            self.error_message = Some(format!(
+                                "'{}' requires a parent resource. Navigate to the parent first and select an item.",
+                                target_resource.display_name
+                            ));
+                        }
+                    } else {
+                        // Normal resource - check if it's a sub-resource of current
+                        if let Some(resource) = self.current_resource() {
+                            let is_sub =
+                                resource.sub_resources.iter().any(|s| s.resource_key == cmd);
+                            if is_sub && self.selected_item().is_some() {
+                                self.navigate_to_sub_resource(cmd).await?;
+                            } else {
+                                self.navigate_to_resource(cmd).await?;
+                            }
                         } else {
                             self.navigate_to_resource(cmd).await?;
                         }
-                    } else {
-                        self.navigate_to_resource(cmd).await?;
                     }
                 } else {
                     self.error_message = Some(format!("Unknown command: {}", cmd));
@@ -1454,9 +1477,15 @@ impl App {
             return Ok(());
         };
 
-        // Extract log group and stream names
-        let log_group = extract_json_value(&item, "logGroupName");
+        // Extract log stream name from selected item
         let log_stream = extract_json_value(&item, "logStreamName");
+
+        // Extract log group name from parent context (log group)
+        let log_group = self
+            .parent_context
+            .as_ref()
+            .map(|ctx| extract_json_value(&ctx.item, "logGroupName"))
+            .unwrap_or_else(|| "-".to_string());
 
         if log_group == "-" || log_stream == "-" {
             self.error_message = Some("Could not get log group/stream name".to_string());

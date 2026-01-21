@@ -48,6 +48,7 @@
       "id_field": "logStreamName",
       "name_field": "logStreamName",
       "is_global": false,
+      "requires_parent": true,
       "columns": [
         { "header": "STREAM NAME", "json_path": "logStreamName", "width": 45 },
         { "header": "LAST EVENT", "json_path": "lastEventTime", "width": 22 },
