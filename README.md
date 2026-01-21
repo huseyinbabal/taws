@@ -35,7 +35,7 @@
 - **Keyboard-Driven** - Vim-like navigation and commands
 - **Resource Actions** - Start, stop, terminate EC2 instances directly
 - **Detailed Views** - JSON/YAML view of resource details
-- **Filtering** - Filter resources by name or attributes
+- **Filtering** - Filter resources locally with fuzzy matching, or by AWS tags (server-side) for supported resources
 - **Autocomplete** - Smart resource type autocomplete with fuzzy matching
 
 ---
@@ -345,6 +345,48 @@ After adding the completion script, restart your shell or source the config file
 | Start instance | `s` | Start selected EC2 instance |
 | Stop instance | `S` | Stop selected EC2 instance |
 | Terminate | `Ctrl+d` | Terminate selected EC2 instance |
+
+---
+
+## Filtering
+
+Press `/` to enter filter mode. taws supports two types of filtering:
+
+### Local Filtering (All Resources)
+
+Type any text to filter resources locally by name, ID, or other visible attributes. Uses fuzzy matching.
+
+```
+/web-server     # Filter by name containing "web-server"
+/i-0123         # Filter by instance ID
+```
+
+### Tag Filtering (Server-Side)
+
+For supported resources, you can filter by AWS tags directly via the AWS API. This is more efficient for large resource lists as filtering happens server-side.
+
+**How to use:**
+1. Press `/` to enter filter mode
+2. Type `T` and press `Tab` to autocomplete `Tag:`
+3. Enter the tag key and value: `Tag:Environment=production`
+4. Press `Enter` to apply the filter (triggers AWS API call)
+5. Press `Esc` to clear the filter
+
+**Examples:**
+```
+Tag:Environment=production    # Filter by Environment tag
+Tag:team=platform             # Filter by team tag
+Tag:Name=web-server           # Filter by Name tag
+```
+
+**Supported Resources for Tag Filtering:**
+
+| Service | Resources |
+|---------|-----------|
+| EC2 | Instances, Volumes, Snapshots |
+| VPC | VPCs, Subnets, Security Groups |
+
+> **Note:** Tag filtering uses the AWS `Filter` parameter with `tag:<key>` syntax. Resources not listed above will show a hint when tag filtering is available.
 
 ---
 
