@@ -60,7 +60,7 @@ pub fn render(f: &mut Frame, app: &App) {
         Mode::Help => {
             help::render(f, app);
         }
-        Mode::Confirm | Mode::Warning | Mode::SsoLogin => {
+        Mode::Confirm | Mode::Warning | Mode::SsoLogin | Mode::ConsoleLogin => {
             dialog::render(f, app);
         }
         Mode::Command => {

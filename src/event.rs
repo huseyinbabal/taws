@@ -29,6 +29,7 @@ async fn handle_key_event(app: &mut App, key: KeyEvent) -> Result<bool> {
         Mode::Profiles => handle_profiles_mode(app, key).await,
         Mode::Regions => handle_regions_mode(app, key).await,
         Mode::SsoLogin => handle_sso_login_mode(app, key).await,
+        Mode::ConsoleLogin => handle_console_login_mode(app, key).await,
         Mode::LogTail => handle_log_tail_mode(app, key).await,
     }
 }
@@ -789,6 +790,105 @@ async fn handle_sso_login_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
         SsoLoginState::Failed { .. } => match key.code {
             KeyCode::Enter | KeyCode::Esc => {
                 app.sso_state = None;
+                app.exit_mode();
+            }
+            _ => {}
+        },
+    }
+
+    Ok(false)
+}
+
+async fn handle_console_login_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
+    use crate::app::ConsoleLoginState;
+    use crate::aws::credentials;
+
+    let console_state = match &app.console_login_state {
+        Some(state) => state.clone(),
+        None => {
+            app.exit_mode();
+            return Ok(false);
+        }
+    };
+
+    match console_state {
+        ConsoleLoginState::Prompt {
+            profile,
+            login_session: _,
+        } => {
+            match key.code {
+                KeyCode::Enter => {
+                    // User pressed Enter - try to load credentials again
+                    let profile_clone = profile.clone();
+                    let result = tokio::task::spawn_blocking(move || {
+                        credentials::load_credentials(&profile_clone)
+                    })
+                    .await;
+
+                    match result {
+                        Ok(Ok(_)) => {
+                            // Credentials loaded successfully
+                            app.console_login_state = Some(ConsoleLoginState::Success { profile });
+                        }
+                        Ok(Err(e)) => {
+                            // Still failed
+                            app.console_login_state = Some(ConsoleLoginState::Failed {
+                                error: format!("Still unable to load credentials: {}", e),
+                            });
+                        }
+                        Err(e) => {
+                            app.console_login_state = Some(ConsoleLoginState::Failed {
+                                error: format!("Task failed: {}", e),
+                            });
+                        }
+                    }
+                }
+                KeyCode::Esc => {
+                    app.console_login_state = None;
+                    app.exit_mode();
+                }
+                _ => {}
+            }
+        }
+
+        ConsoleLoginState::Success { profile } => {
+            match key.code {
+                KeyCode::Enter | KeyCode::Esc => {
+                    // Now complete the profile switch with fresh credentials
+                    let profile_to_switch = profile.clone();
+                    app.console_login_state = None;
+                    app.exit_mode();
+                    // Actually switch the profile now that login is complete
+                    if let Err(e) = app.switch_profile(&profile_to_switch).await {
+                        app.error_message = Some(format!("Failed to switch profile: {}", e));
+                    } else {
+                        let _ = app.refresh_current().await;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        ConsoleLoginState::Failed { .. } => match key.code {
+            KeyCode::Enter => {
+                // Retry - go back to prompt state
+                // Get the profile from the original state
+                if let Some(ConsoleLoginState::Prompt {
+                    profile,
+                    login_session,
+                }) = app.console_login_state.take()
+                {
+                    app.console_login_state = Some(ConsoleLoginState::Prompt {
+                        profile,
+                        login_session,
+                    });
+                } else {
+                    app.console_login_state = None;
+                    app.exit_mode();
+                }
+            }
+            KeyCode::Esc => {
+                app.console_login_state = None;
                 app.exit_mode();
             }
             _ => {}

@@ -12,16 +12,17 @@ use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
-    Normal,   // Viewing list
-    Command,  // : command input
-    Help,     // ? help popup
-    Confirm,  // Confirmation dialog
-    Warning,  // Warning/info dialog (OK only)
-    Profiles, // Profile selection
-    Regions,  // Region selection
-    Describe, // Viewing JSON details of selected item
-    SsoLogin, // SSO login dialog
-    LogTail,  // Tailing CloudWatch logs
+    Normal,       // Viewing list
+    Command,      // : command input
+    Help,         // ? help popup
+    Confirm,      // Confirmation dialog
+    Warning,      // Warning/info dialog (OK only)
+    Profiles,     // Profile selection
+    Regions,      // Region selection
+    Describe,     // Viewing JSON details of selected item
+    SsoLogin,     // SSO login dialog (IAM Identity Center)
+    ConsoleLogin, // Console login dialog (aws login)
+    LogTail,      // Tailing CloudWatch logs
 }
 
 /// Pending action that requires confirmation
@@ -179,8 +180,11 @@ pub struct App {
     // Custom endpoint URL (for LocalStack, etc.)
     pub endpoint_url: Option<String>,
 
-    // SSO login state
+    // SSO login state (IAM Identity Center)
     pub sso_state: Option<SsoLoginState>,
+
+    // Console login state (aws login)
+    pub console_login_state: Option<ConsoleLoginState>,
 
     // Pagination state
     pub pagination: PaginationState,
@@ -253,15 +257,34 @@ pub enum SsoLoginState {
     Failed { error: String },
 }
 
+/// State for console login (aws login) dialog
+#[derive(Debug, Clone)]
+pub enum ConsoleLoginState {
+    /// Prompt to run aws login
+    Prompt {
+        profile: String,
+        login_session: String,
+    },
+    /// Login succeeded - contains profile to switch to
+    Success { profile: String },
+    /// Login failed
+    Failed { error: String },
+}
+
 /// Result of profile switch attempt
 #[derive(Debug, Clone)]
 pub enum ProfileSwitchResult {
     /// Profile switched successfully
     Success,
-    /// SSO login required for this profile
+    /// SSO login required for this profile (IAM Identity Center)
     SsoRequired {
         profile: String,
         sso_session: String,
+    },
+    /// Console login required for this profile (aws login)
+    ConsoleLoginRequired {
+        profile: String,
+        login_session: String,
     },
 }
 
@@ -351,6 +374,7 @@ impl App {
             warning_message: None,
             endpoint_url,
             sso_state: None,
+            console_login_state: None,
             pagination: PaginationState::default(),
             log_tail_state: None,
             ssm_connect_request: None,
@@ -1107,6 +1131,14 @@ impl App {
         self.mode = Mode::SsoLogin;
     }
 
+    pub fn enter_console_login_mode(&mut self, profile: &str, login_session: &str) {
+        self.console_login_state = Some(ConsoleLoginState::Prompt {
+            profile: profile.to_string(),
+            login_session: login_session.to_string(),
+        });
+        self.mode = Mode::ConsoleLogin;
+    }
+
     /// Create a pending action from an ActionDef
     pub fn create_pending_action(
         &self,
@@ -1339,7 +1371,7 @@ impl App {
         Ok(())
     }
 
-    /// Switch profile with SSO check - returns SsoRequired if SSO login is needed
+    /// Switch profile with SSO/Console login check - returns login required if needed
     pub async fn switch_profile_with_sso_check(
         &mut self,
         profile: &str,
@@ -1372,10 +1404,18 @@ impl App {
                 profile,
                 sso_session,
             }),
+            ClientResult::ConsoleLoginRequired {
+                profile,
+                login_session,
+                ..
+            } => Ok(ProfileSwitchResult::ConsoleLoginRequired {
+                profile,
+                login_session,
+            }),
         }
     }
 
-    /// Select profile - returns true if SSO login is required
+    /// Select profile - returns true if login (SSO or Console) is required
     pub async fn select_profile(&mut self) -> Result<bool> {
         if let Some(profile) = self.available_profiles.get(self.profiles_selected) {
             let profile = profile.clone();
@@ -1389,8 +1429,16 @@ impl App {
                     profile,
                     sso_session,
                 } => {
-                    // Enter SSO login mode
+                    // Enter SSO login mode (IAM Identity Center)
                     self.enter_sso_login_mode(&profile, &sso_session);
+                    Ok(true)
+                }
+                ProfileSwitchResult::ConsoleLoginRequired {
+                    profile,
+                    login_session,
+                } => {
+                    // Enter console login mode (aws login)
+                    self.enter_console_login_mode(&profile, &login_session);
                     Ok(true)
                 }
             }
