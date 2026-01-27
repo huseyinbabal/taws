@@ -53,30 +53,41 @@ pub fn render(f: &mut Frame, app: &App) {
             }
             help_text.push(Line::from(""));
         }
+
+        // Add sub-resources navigation section if resource has sub-resources
+        if !resource.sub_resources.is_empty() {
+            help_text.push(create_section("Sub-resources"));
+            for sub in &resource.sub_resources {
+                help_text.push(create_key_line(&sub.shortcut, &sub.display_name));
+            }
+            help_text.push(Line::from(""));
+        }
+    }
+
+    // Add Log Tail section only for CloudWatch log streams
+    if app.current_resource_key == "cloudwatch-log-streams" {
+        help_text.extend(vec![
+            create_section("Log Tail Mode"),
+            create_key_line("t", "Tail logs"),
+            create_key_line("j / k", "Scroll up/down"),
+            create_key_line("G", "Go to bottom (live mode)"),
+            create_key_line("g", "Go to top"),
+            create_key_line("SPACE", "Pause/resume"),
+            create_key_line("q / Esc", "Exit log tail"),
+            Line::from(""),
+        ]);
     }
 
     // Add remaining static sections
     help_text.extend(vec![
-        create_section("Log Tail Mode"),
-        create_key_line("t", "Tail logs (on log stream)"),
-        create_key_line("j / k", "Scroll up/down"),
-        create_key_line("G", "Go to bottom (live mode)"),
-        create_key_line("g", "Go to top"),
-        create_key_line("SPACE", "Pause/resume"),
-        create_key_line("q / Esc", "Exit log tail"),
-        Line::from(""),
-        create_section("Auto-refresh"),
-        create_key_line("", "List refreshes every 5s"),
-        Line::from(""),
         create_section("Modes"),
         create_key_line("/", "Filter mode"),
-        create_key_line(":", "Resources mode"),
+        create_key_line(":", "Command mode"),
         Line::from(""),
-        create_section("Resources"),
-        create_key_line(":ec2", "EC2 instances view"),
-        create_key_line(":vpc", "VPC view"),
-        create_key_line(":profiles", "List AWS profiles"),
-        create_key_line(":regions", "List AWS regions"),
+        create_section("Common Commands"),
+        create_key_line(":profiles", "Switch AWS profile"),
+        create_key_line(":regions", "Switch AWS region"),
+        create_key_line("Backspace", "Go back (parent resource)"),
         Line::from(""),
         create_key_line("Esc", "Close / Cancel"),
         create_key_line("Ctrl+c", "Quit application"),
