@@ -201,9 +201,9 @@ async fn handle_normal_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
         KeyCode::Esc => {
             if !app.filter_text.is_empty() {
                 app.clear_filter();
-            } else if app.tag_filter.is_some() {
-                // Clear server-side tag filter and refresh
-                app.clear_tag_filter().await?;
+            } else if app.aws_filters.is_some() {
+                // Clear server-side AWS filters and refresh
+                app.clear_aws_filters().await?;
             } else if app.parent_context.is_some() {
                 app.navigate_back().await?;
             }
@@ -336,40 +336,40 @@ async fn handle_filter_input(app: &mut App, key: KeyEvent) -> Result<bool> {
             app.clear_filter();
         }
         KeyCode::Enter => {
-            // Check if this is a tag filter that should trigger server-side filtering
-            if let Some((key, value)) = App::parse_tag_filter(&app.filter_text) {
-                if app.current_resource_supports_tag_filter() {
-                    // Set the tag filter and trigger a refresh
-                    app.tag_filter = Some(crate::app::TagFilter { key, value });
+            // Check if this is an AWS filter that should trigger server-side filtering
+            if let Some(filters) = crate::app::AwsFilters::parse(&app.filter_text) {
+                if app.current_resource_supports_filters() {
+                    // Set the AWS filters and trigger a refresh
+                    app.aws_filters = Some(filters);
                     app.filter_text.clear();
                     app.filter_active = false;
-                    app.tag_filter_autocomplete_shown = false;
-                    // Reset pagination and refresh with the new filter
+                    app.filters_autocomplete_shown = false;
+                    // Reset pagination and refresh with the new filters
                     app.reset_pagination();
                     app.refresh_current().await?;
                     return Ok(false);
                 }
             }
             app.filter_active = false;
-            app.tag_filter_autocomplete_shown = false;
+            app.filters_autocomplete_shown = false;
         }
         KeyCode::Tab => {
-            // Autocomplete "Tag:" when typing T/Ta/Tag
-            if app.should_show_tag_autocomplete() {
-                app.filter_text = "Tag:".to_string();
-                app.tag_filter_autocomplete_shown = false;
+            // Autocomplete "Filters:" when typing F/Fi/Filters
+            if app.should_show_filters_autocomplete() {
+                app.filter_text = "Filters: ".to_string();
+                app.filters_autocomplete_shown = false;
             }
         }
         KeyCode::Backspace => {
             app.filter_text.pop();
             // Update autocomplete state
-            app.tag_filter_autocomplete_shown = app.should_show_tag_autocomplete();
+            app.filters_autocomplete_shown = app.should_show_filters_autocomplete();
             app.apply_filter();
         }
         KeyCode::Char('/') => {
-            // Pressing '/' again clears and restarts the filter (including tag filter)
+            // Pressing '/' again clears and restarts the filter (including AWS filters)
             if app.start_new_filter() {
-                // Tag filter was cleared, need to refresh to remove server-side filter
+                // AWS filters were cleared, need to refresh to remove server-side filter
                 app.refresh_current().await?;
             }
             app.apply_filter();
@@ -377,9 +377,10 @@ async fn handle_filter_input(app: &mut App, key: KeyEvent) -> Result<bool> {
         KeyCode::Char(c) => {
             app.filter_text.push(c);
             // Update autocomplete state
-            app.tag_filter_autocomplete_shown = app.should_show_tag_autocomplete();
-            // Only apply client-side filter if not a tag filter
-            if !app.filter_text.to_lowercase().starts_with("tag:") {
+            app.filters_autocomplete_shown = app.should_show_filters_autocomplete();
+            // Only apply client-side filter if not an AWS filter
+            let text_lower = app.filter_text.to_lowercase();
+            if !text_lower.starts_with("filters:") {
                 app.apply_filter();
             }
         }

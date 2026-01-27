@@ -361,32 +361,41 @@ Type any text to filter resources locally by name, ID, or other visible attribut
 /i-0123         # Filter by instance ID
 ```
 
-### Tag Filtering (Server-Side)
+### AWS API Filtering (Server-Side)
 
-For supported resources, you can filter by AWS tags directly via the AWS API. This is more efficient for large resource lists as filtering happens server-side.
+For supported resources, you can filter using AWS API filters directly. This is more efficient for large resource lists as filtering happens server-side.
 
 **How to use:**
 1. Press `/` to enter filter mode
-2. Type `T` and press `Tab` to autocomplete `Tag:`
-3. Enter the tag key and value: `Tag:Environment=production`
+2. Type `F` and press `Tab` to autocomplete `Filters: `
+3. Enter filter key-value pairs: `Filters: owner=amazon, architecture=arm64`
 4. Press `Enter` to apply the filter (triggers AWS API call)
 5. Press `Esc` to clear the filter
 
-**Examples:**
+**Syntax:**
 ```
-Tag:Environment=production    # Filter by Environment tag
-Tag:team=platform             # Filter by team tag
-Tag:Name=web-server           # Filter by Name tag
+Filters: key=value, key2=value2
 ```
 
-**Supported Resources for Tag Filtering:**
+**Examples by Resource:**
 
-| Service | Resources |
-|---------|-----------|
-| EC2 | Instances, Volumes, Snapshots |
-| VPC | VPCs, Subnets, Security Groups |
+| Resource | Example Filters |
+|----------|----------------|
+| AMIs | `Filters: owner=amazon, architecture=arm64, state=available` |
+| EC2 Instances | `Filters: instance-state-name=running, tag:Environment=prod` |
+| EBS Volumes | `Filters: status=available, tag:Name=my-volume` |
+| EBS Snapshots | `Filters: status=completed, owner-id=self` |
 
-> **Note:** Tag filtering uses the AWS `Filter` parameter with `tag:<key>` syntax. Resources not listed above will show a hint when tag filtering is available.
+**Common Filter Keys:**
+
+| Filter Key | Description | Example Values |
+|------------|-------------|----------------|
+| `owner` | AMI owner (AMIs only) | `amazon`, `self`, `aws-marketplace`, `<account-id>` |
+| `architecture` | CPU architecture | `arm64`, `x86_64` |
+| `state` / `status` | Resource state | `available`, `running`, `stopped` |
+| `tag:<key>` | Filter by tag | `tag:Environment=production` |
+
+> **Note:** When you enter filter mode on a supported resource, taws shows available filter keys for that resource in the status bar.
 
 ---
 
@@ -398,6 +407,7 @@ Press `:` to open the resource picker. Type to filter resources:
 :ec2          # EC2 Instances
 :volumes      # EBS Volumes
 :snapshots    # EBS Snapshots
+:amis         # AMIs (Amazon Machine Images)
 :lambda       # Lambda Functions
 :s3           # S3 Buckets
 :rds          # RDS Instances
@@ -415,7 +425,7 @@ taws supports **30 AWS services** with **51 resource types** covering 95%+ of ty
 
 | Category | Service | Resources |
 |----------|---------|-----------|
-| **Compute** | EC2 | Instances, Volumes, Snapshots |
+| **Compute** | EC2 | Instances, Volumes, Snapshots, AMIs |
 | | Lambda | Functions |
 | | ECS | Clusters, Services, Tasks |
 | | EKS | Clusters |
