@@ -71,8 +71,8 @@ pub fn render(f: &mut Frame, app: &App) {
 }
 
 fn render_main_content(f: &mut Frame, app: &App, area: Rect) {
-    // If filter is active, has text, or has active tag filter, show filter bar
-    let show_filter = app.filter_active || !app.filter_text.is_empty() || app.tag_filter.is_some();
+    // If filter is active, has text, or has active AWS filters, show filter bar
+    let show_filter = app.filter_active || !app.filter_text.is_empty() || app.aws_filters.is_some();
 
     if show_filter {
         let chunks = Layout::default()
@@ -90,12 +90,12 @@ fn render_main_content(f: &mut Frame, app: &App, area: Rect) {
 fn render_filter_bar(f: &mut Frame, app: &App, area: Rect) {
     let mut spans: Vec<Span> = Vec::new();
 
-    // Show active tag filter if present (server-side filter)
-    if let Some(tag_display) = app.tag_filter_display() {
+    // Show active AWS filters if present (server-side filter)
+    if let Some(filters_display) = app.aws_filters_display() {
         spans.push(Span::styled(
-            format!("[{}] ", tag_display),
+            format!("[{}] ", filters_display),
             Style::default()
-                .fg(Color::Magenta)
+                .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ));
         spans.push(Span::styled(
@@ -122,9 +122,9 @@ fn render_filter_bar(f: &mut Frame, app: &App, area: Rect) {
 
         spans.push(Span::styled(filter_display, cursor_style));
 
-        // Show autocomplete hint for tag filter
-        if app.tag_filter_autocomplete_shown {
-            let remaining = &"Tag:"[app.filter_text.len()..];
+        // Show autocomplete hint for Filters:
+        if app.filters_autocomplete_shown {
+            let remaining = &"Filters: "[app.filter_text.len()..];
             spans.push(Span::styled(
                 remaining.to_string(),
                 Style::default().fg(Color::DarkGray),
@@ -135,12 +135,20 @@ fn render_filter_bar(f: &mut Frame, app: &App, area: Rect) {
             ));
         }
 
-        // Show hint for tag filter format when typing Tag:
-        if app.filter_text.to_lowercase().starts_with("tag:") && !app.filter_text.contains('=') {
-            spans.push(Span::styled(
-                " key=value",
-                Style::default().fg(Color::DarkGray),
-            ));
+        // Show hint for filters format when typing Filters:
+        if app.filter_text.to_lowercase().starts_with("filters:") {
+            // Show resource-specific filter hint if available
+            if let Some(hint) = app.current_resource_filters_hint() {
+                spans.push(Span::styled(
+                    format!(" {}", hint),
+                    Style::default().fg(Color::DarkGray),
+                ));
+            } else {
+                spans.push(Span::styled(
+                    " key=value, key2=value2",
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
         }
     }
 
@@ -771,12 +779,17 @@ fn render_crumb(f: &mut Frame, app: &App, area: Rect) {
     } else if app.mode == Mode::LogTail {
         "j/k: scroll | G: bottom (live) | g: top | SPACE: pause | q: exit".to_string()
     } else if app.filter_active {
-        if app.filter_text.to_lowercase().starts_with("tag:") {
-            "Tag:key=value | Enter: apply server-side filter | Esc: clear".to_string()
-        } else if app.tag_filter_autocomplete_shown {
-            "Tab: complete 'Tag:' | Type to filter locally | Esc: clear".to_string()
-        } else if app.current_resource_supports_tag_filter() {
-            "Type 'T' for tag filter | Type to filter locally | Esc: clear".to_string()
+        if app.filter_text.to_lowercase().starts_with("filters:") {
+            // Show resource-specific hint if available
+            if let Some(hint) = app.current_resource_filters_hint() {
+                format!("Filters: {} | Enter: apply | Esc: clear", hint)
+            } else {
+                "Filters: key=value, key2=value2 | Enter: apply | Esc: clear".to_string()
+            }
+        } else if app.filters_autocomplete_shown {
+            "Tab: complete 'Filters:' | Type to filter locally | Esc: clear".to_string()
+        } else if app.current_resource_supports_filters() {
+            "Type 'F' for Filters | Type to filter locally | Esc: clear".to_string()
         } else {
             "Type to filter | Enter: apply | Esc: clear".to_string()
         }

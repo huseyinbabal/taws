@@ -1,5 +1,80 @@
 {
   "resources": {
+    "ec2-amis": {
+      "display_name": "AMIs",
+      "service": "ec2",
+      "sdk_method": "describe_images",
+      "sdk_method_params": {},
+      "response_path": "images",
+      "id_field": "ImageId",
+      "name_field": "Name",
+      "is_global": false,
+      "columns": [
+        { "header": "NAME", "json_path": "Name", "width": 30 },
+        { "header": "IMAGE ID", "json_path": "ImageId", "width": 24 },
+        { "header": "STATE", "json_path": "State", "width": 12, "color_map": "state" },
+        { "header": "ARCH", "json_path": "Architecture", "width": 10 },
+        { "header": "PLATFORM", "json_path": "PlatformDetails", "width": 20 },
+        { "header": "ROOT TYPE", "json_path": "RootDeviceType", "width": 14 },
+        { "header": "CREATED", "json_path": "CreationDate", "width": 20 },
+        { "header": "PUBLIC", "json_path": "Public", "width": 8, "color_map": "bool" }
+      ],
+      "sub_resources": [],
+      "actions": [
+        { "key": "ctrl+d", "display_name": "Deregister AMI", "shortcut": "ctrl+d", "sdk_method": "deregister_image", "confirm": { "message": "Deregister AMI", "default_yes": false, "destructive": true } }
+      ],
+      "api_config": {
+        "protocol": "query",
+        "action": "DescribeImages",
+        "response_root": "/DescribeImagesResponse/imagesSet/item",
+        "static_params": {
+          "Owner.1": "amazon"
+        },
+        "pagination": {
+          "input_token": "NextToken",
+          "output_token": "/DescribeImagesResponse/nextToken",
+          "max_results_param": "MaxResults",
+          "max_results": 100
+        }
+      },
+      "field_mappings": {
+        "ImageId": { "source": "/imageId", "default": "-" },
+        "Name": { "source": "/name", "default": "-" },
+        "State": { "source": "/imageState", "default": "-" },
+        "Architecture": { "source": "/architecture", "default": "-" },
+        "PlatformDetails": { "source": "/platformDetails", "default": "-" },
+        "RootDeviceType": { "source": "/rootDeviceType", "default": "-" },
+        "RootDeviceName": { "source": "/rootDeviceName", "default": "-" },
+        "CreationDate": { "source": "/creationDate", "default": "-" },
+        "Public": { "source": "/isPublic", "transform": "bool_to_yes_no" },
+        "Description": { "source": "/description", "default": "-" },
+        "OwnerId": { "source": "/imageOwnerId", "default": "-" },
+        "ImageType": { "source": "/imageType", "default": "-" },
+        "VirtualizationType": { "source": "/virtualizationType", "default": "-" },
+        "Hypervisor": { "source": "/hypervisor", "default": "-" },
+        "EnaSupport": { "source": "/enaSupport", "transform": "bool_to_yes_no" },
+        "SriovNetSupport": { "source": "/sriovNetSupport", "default": "-" },
+        "Tags": { "source": "/tagSet/item", "transform": "tags_to_map" }
+      },
+      "action_configs": {
+        "deregister_image": {
+          "action_id": "deregister_image",
+          "protocol": "query",
+          "action": "DeregisterImage",
+          "id_param": "ImageId"
+        }
+      },
+      "describe_config": {
+        "protocol": "query",
+        "action": "DescribeImages",
+        "id_param": "ImageId.1",
+        "response_path": "/DescribeImagesResponse/imagesSet/item"
+      },
+      "filters_config": {
+        "enabled": true,
+        "hint": "owner=amazon|self, architecture=arm64|x86_64, state=available"
+      }
+    },
     "ec2-volumes": {
       "display_name": "EBS Volumes",
       "service": "ec2",
@@ -54,8 +129,9 @@
         "id_param": "VolumeId.1",
         "response_path": "/DescribeVolumesResponse/volumeSet/item"
       },
-      "tag_filter": {
-        "enabled": true
+      "filters_config": {
+        "enabled": true,
+        "hint": "tag:Name=value, status=available|pending"
       }
     },
     "ec2-snapshots": {
@@ -114,8 +190,9 @@
         "id_param": "SnapshotId.1",
         "response_path": "/DescribeSnapshotsResponse/snapshotSet/item"
       },
-      "tag_filter": {
-        "enabled": true
+      "filters_config": {
+        "enabled": true,
+        "hint": "tag:Name=value, status=completed|pending"
       }
     },
     "ec2-instances": {
@@ -192,8 +269,9 @@
         "id_param": "InstanceId.1",
         "response_path": "/DescribeInstancesResponse/reservationSet/item/instancesSet/item"
       },
-      "tag_filter": {
-        "enabled": true
+      "filters_config": {
+        "enabled": true,
+        "hint": "tag:Name=value, instance-state-name=running|stopped"
       }
     }
   }

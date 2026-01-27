@@ -55,13 +55,55 @@ pub struct ParentContext {
     pub display_name: String,
 }
 
-/// Tag filter for server-side filtering
-#[derive(Debug, Clone)]
-pub struct TagFilter {
-    /// Tag key (e.g., "Environment", "team")
-    pub key: String,
-    /// Tag value (e.g., "production", "dev")
-    pub value: String,
+/// AWS API Filters for server-side filtering
+/// Supports key=value pairs like: architecture=arm64, owner=amazon, tag:Environment=prod
+#[derive(Debug, Clone, Default)]
+pub struct AwsFilters {
+    /// List of filter key-value pairs
+    pub filters: Vec<(String, String)>,
+}
+
+impl AwsFilters {
+    /// Parse filters from text (format: "Filters: key=value, key2=value2")
+    pub fn parse(text: &str) -> Option<Self> {
+        let text = text.trim();
+        if !text.to_lowercase().starts_with("filters:") {
+            return None;
+        }
+
+        let filters_part = text[8..].trim(); // Skip "Filters:"
+        if filters_part.is_empty() {
+            return None;
+        }
+
+        let mut filters = Vec::new();
+        for part in filters_part.split(',') {
+            let part = part.trim();
+            if let Some(eq_pos) = part.find('=') {
+                let key = part[..eq_pos].trim().to_string();
+                let value = part[eq_pos + 1..].trim().to_string();
+                if !key.is_empty() && !value.is_empty() {
+                    filters.push((key, value));
+                }
+            }
+        }
+
+        if filters.is_empty() {
+            None
+        } else {
+            Some(AwsFilters { filters })
+        }
+    }
+
+    /// Display string for the filters
+    pub fn display(&self) -> String {
+        let pairs: Vec<String> = self
+            .filters
+            .iter()
+            .map(|(k, v)| format!("{}={}", k, v))
+            .collect();
+        format!("Filters: {}", pairs.join(", "))
+    }
 }
 
 pub struct App {
@@ -81,9 +123,9 @@ pub struct App {
     pub filter_text: String,
     pub filter_active: bool,
 
-    // Tag filter state
-    pub tag_filter: Option<TagFilter>,
-    pub tag_filter_autocomplete_shown: bool,
+    // AWS API filters state (unified filter system)
+    pub aws_filters: Option<AwsFilters>,
+    pub filters_autocomplete_shown: bool,
 
     // Hierarchical navigation
     pub parent_context: Option<ParentContext>,
@@ -278,8 +320,8 @@ impl App {
             mode: Mode::Normal,
             filter_text: String::new(),
             filter_active: false,
-            tag_filter: None,
-            tag_filter_autocomplete_shown: false,
+            aws_filters: None,
+            filters_autocomplete_shown: false,
             parent_context: None,
             navigation_stack: Vec::new(),
             command_text: String::new(),
@@ -450,18 +492,31 @@ impl App {
         self.pagination = PaginationState::default();
     }
 
-    /// Build AWS filters from parent context and tag filters
+    /// Build AWS filters from parent context and AWS API filters
     /// For S3, this collects both bucket_names and prefix from navigation stack
     fn build_filters_from_context(&self) -> Vec<ResourceFilter> {
         let mut filters = Vec::new();
 
-        // Add tag filter if present
-        if let Some(ref tag_filter) = self.tag_filter {
-            // EC2/VPC style tag filter: Filter.N.Name=tag:KEY, Filter.N.Value.1=VALUE
-            filters.push(ResourceFilter::new(
-                &format!("tag:{}", tag_filter.key),
-                vec![tag_filter.value.clone()],
-            ));
+        // Add AWS API filters if present (unified filter system)
+        if let Some(ref aws_filters) = self.aws_filters {
+            for (key, value) in &aws_filters.filters {
+                // Special handling for "owner" - uses Owner.N param, not Filter
+                if key.to_lowercase() == "owner" {
+                    filters.push(ResourceFilter::new(
+                        &format!("owner:{}", value),
+                        vec![value.clone()],
+                    ));
+                } else if key.starts_with("tag:") {
+                    // Tag filters: tag:Key=Value -> Filter.N.Name=tag:Key, Filter.N.Value.1=Value
+                    filters.push(ResourceFilter::new(key, vec![value.clone()]));
+                } else {
+                    // Regular filters: key=value -> Filter.N.Name=key, Filter.N.Value.1=value
+                    filters.push(ResourceFilter::new(
+                        &format!("filter:{}", key),
+                        vec![value.clone()],
+                    ));
+                }
+            }
         }
 
         let Some(parent) = &self.parent_context else {
@@ -613,13 +668,13 @@ impl App {
         }
     }
 
-    /// Start a new filter, clearing any existing tag filter
-    /// Returns true if a refresh is needed (tag filter was cleared)
+    /// Start a new filter, clearing any existing AWS filters
+    /// Returns true if a refresh is needed (filters were cleared)
     pub fn start_new_filter(&mut self) -> bool {
-        let needs_refresh = self.tag_filter.is_some();
+        let needs_refresh = self.aws_filters.is_some();
         self.filter_text.clear();
-        self.tag_filter = None;
-        self.tag_filter_autocomplete_shown = false;
+        self.aws_filters = None;
+        self.filters_autocomplete_shown = false;
         self.filter_active = true;
         if needs_refresh {
             self.reset_pagination();
@@ -630,65 +685,46 @@ impl App {
     pub fn clear_filter(&mut self) {
         self.filter_text.clear();
         self.filter_active = false;
-        self.tag_filter = None;
-        self.tag_filter_autocomplete_shown = false;
+        self.aws_filters = None;
+        self.filters_autocomplete_shown = false;
         self.apply_filter();
     }
 
-    /// Check if the current resource supports tag filtering via AWS API
-    pub fn current_resource_supports_tag_filter(&self) -> bool {
+    /// Check if the current resource supports filtering via AWS API
+    pub fn current_resource_supports_filters(&self) -> bool {
         self.current_resource()
-            .map(|r| r.supports_tag_filter())
+            .map(|r| r.supports_filters())
             .unwrap_or(false)
     }
 
-    /// Parse a tag filter from filter text (format: "Tag:key=value")
-    /// Returns Some((key, value)) if valid tag filter syntax
-    pub fn parse_tag_filter(text: &str) -> Option<(String, String)> {
-        let text = text.trim();
-        if !text.starts_with("Tag:") && !text.starts_with("tag:") {
-            return None;
-        }
-
-        // Extract the part after "Tag:"
-        let tag_part = &text[4..];
-
-        // Look for key=value pattern
-        if let Some(eq_pos) = tag_part.find('=') {
-            let key = tag_part[..eq_pos].trim().to_string();
-            let value = tag_part[eq_pos + 1..].trim().to_string();
-            if !key.is_empty() && !value.is_empty() {
-                return Some((key, value));
-            }
-        }
-
-        None
+    /// Get filter hint for current resource
+    pub fn current_resource_filters_hint(&self) -> Option<String> {
+        self.current_resource()
+            .and_then(|r| r.filters_hint().map(|s| s.to_string()))
     }
 
-    /// Check if filter text should trigger tag autocomplete (just "T" or "Ta" or "Tag")
-    pub fn should_show_tag_autocomplete(&self) -> bool {
-        if !self.current_resource_supports_tag_filter() {
+    /// Check if filter text should trigger filters autocomplete (just "F" or "Fi" or "Filters")
+    pub fn should_show_filters_autocomplete(&self) -> bool {
+        if !self.current_resource_supports_filters() {
             return false;
         }
         let text = self.filter_text.trim().to_lowercase();
-        !text.is_empty() && "tag:".starts_with(&text) && !text.contains(':')
+        !text.is_empty() && "filters:".starts_with(&text) && !text.contains(':')
     }
 
-    /// Clear just the tag filter and refresh
-    pub async fn clear_tag_filter(&mut self) -> anyhow::Result<()> {
-        if self.tag_filter.is_some() {
-            self.tag_filter = None;
+    /// Clear AWS filters and refresh
+    pub async fn clear_aws_filters(&mut self) -> anyhow::Result<()> {
+        if self.aws_filters.is_some() {
+            self.aws_filters = None;
             self.reset_pagination();
             self.refresh_current().await?;
         }
         Ok(())
     }
 
-    /// Get a display string for the current tag filter
-    pub fn tag_filter_display(&self) -> Option<String> {
-        self.tag_filter
-            .as_ref()
-            .map(|tf| format!("Tag:{}={}", tf.key, tf.value))
+    /// Get a display string for the current AWS filters
+    pub fn aws_filters_display(&self) -> Option<String> {
+        self.aws_filters.as_ref().map(|f| f.display())
     }
 
     // =========================================================================
@@ -1700,47 +1736,74 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_tag_filter_valid() {
-        let result = App::parse_tag_filter("Tag:Environment=production");
+    fn test_parse_aws_filters_valid() {
+        let result = AwsFilters::parse("Filters: owner=amazon, architecture=arm64");
+        assert!(result.is_some());
+        let filters = result.unwrap();
+        assert_eq!(filters.filters.len(), 2);
         assert_eq!(
-            result,
-            Some(("Environment".to_string(), "production".to_string()))
+            filters.filters[0],
+            ("owner".to_string(), "amazon".to_string())
+        );
+        assert_eq!(
+            filters.filters[1],
+            ("architecture".to_string(), "arm64".to_string())
         );
     }
 
     #[test]
-    fn test_parse_tag_filter_lowercase() {
-        let result = App::parse_tag_filter("tag:team=dev");
-        assert_eq!(result, Some(("team".to_string(), "dev".to_string())));
+    fn test_parse_aws_filters_lowercase() {
+        let result = AwsFilters::parse("filters: state=available");
+        assert!(result.is_some());
+        let filters = result.unwrap();
+        assert_eq!(filters.filters.len(), 1);
+        assert_eq!(
+            filters.filters[0],
+            ("state".to_string(), "available".to_string())
+        );
     }
 
     #[test]
-    fn test_parse_tag_filter_with_spaces() {
-        let result = App::parse_tag_filter("  Tag: Name = my-server  ");
-        assert_eq!(result, Some(("Name".to_string(), "my-server".to_string())));
+    fn test_parse_aws_filters_with_tag() {
+        let result = AwsFilters::parse("Filters: tag:Environment=prod");
+        assert!(result.is_some());
+        let filters = result.unwrap();
+        assert_eq!(filters.filters.len(), 1);
+        assert_eq!(
+            filters.filters[0],
+            ("tag:Environment".to_string(), "prod".to_string())
+        );
     }
 
     #[test]
-    fn test_parse_tag_filter_invalid_no_value() {
-        let result = App::parse_tag_filter("Tag:Environment=");
-        assert_eq!(result, None);
+    fn test_parse_aws_filters_invalid_no_value() {
+        let result = AwsFilters::parse("Filters: owner=");
+        assert!(result.is_none());
     }
 
     #[test]
-    fn test_parse_tag_filter_invalid_no_key() {
-        let result = App::parse_tag_filter("Tag:=production");
-        assert_eq!(result, None);
+    fn test_parse_aws_filters_invalid_no_key() {
+        let result = AwsFilters::parse("Filters: =amazon");
+        assert!(result.is_none());
     }
 
     #[test]
-    fn test_parse_tag_filter_invalid_no_equals() {
-        let result = App::parse_tag_filter("Tag:Environment");
-        assert_eq!(result, None);
+    fn test_parse_aws_filters_not_filters_prefix() {
+        let result = AwsFilters::parse("owner=amazon");
+        assert!(result.is_none());
     }
 
     #[test]
-    fn test_parse_tag_filter_not_tag_prefix() {
-        let result = App::parse_tag_filter("production");
-        assert_eq!(result, None);
+    fn test_aws_filters_display() {
+        let filters = AwsFilters {
+            filters: vec![
+                ("owner".to_string(), "amazon".to_string()),
+                ("architecture".to_string(), "arm64".to_string()),
+            ],
+        };
+        assert_eq!(
+            filters.display(),
+            "Filters: owner=amazon, architecture=arm64"
+        );
     }
 }

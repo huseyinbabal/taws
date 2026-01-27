@@ -31,15 +31,41 @@ impl QueryProtocolHandler {
         // Build query parameters from params Value
         let mut query_params: Vec<(String, String)> = Vec::new();
 
-        // Add static params from config
+        // Check if there's a dynamic owner filter that should override static Owner params
+        let has_owner_filter = params
+            .as_object()
+            .map(|m| m.keys().any(|k| k.starts_with("owner:")))
+            .unwrap_or(false);
+
+        // Add static params from config (skip Owner.* if dynamic owner filter is present)
         for (key, value) in &config.static_params {
+            if has_owner_filter && key.starts_with("Owner.") {
+                continue; // Skip static Owner params when dynamic owner filter is used
+            }
             if let Some(s) = value.as_str() {
                 query_params.push((key.clone(), s.to_string()));
             }
         }
 
-        // Track filter index for tag filters
+        // Add pagination params if configured
+        if let Some(pagination) = &config.pagination {
+            // Add max results
+            if let Some(max_param) = &pagination.max_results_param {
+                let max_value = pagination.max_results.unwrap_or(100);
+                query_params.push((max_param.clone(), max_value.to_string()));
+            }
+            // Add page token if provided
+            if let Some(token) = params.get("_page_token").and_then(|v| v.as_str()) {
+                if let Some(input_token) = &pagination.input_token {
+                    query_params.push((input_token.clone(), token.to_string()));
+                }
+            }
+        }
+
+        // Track filter index for AWS Filters
         let mut filter_index = 1;
+        // Track owner index for Owner params (AMIs)
+        let mut owner_index = 1;
 
         // Add dynamic params
         if let Value::Object(map) = params {
@@ -49,12 +75,47 @@ impl QueryProtocolHandler {
                     continue;
                 }
 
-                // Handle tag filters specially (format: "tag:KeyName" -> Filter.N.Name=tag:KeyName, Filter.N.Value.1=value)
+                // Handle tag filters (format: "tag:KeyName" -> Filter.N.Name=tag:KeyName, Filter.N.Value.1=value)
                 if key.starts_with("tag:") {
                     if let Value::Array(arr) = value {
                         // Add Filter.N.Name=tag:KeyName
                         query_params.push((format!("Filter.{}.Name", filter_index), key.clone()));
                         // Add Filter.N.Value.M for each value
+                        for (i, item) in arr.iter().enumerate() {
+                            if let Some(s) = item.as_str() {
+                                query_params.push((
+                                    format!("Filter.{}.Value.{}", filter_index, i + 1),
+                                    s.to_string(),
+                                ));
+                            }
+                        }
+                        filter_index += 1;
+                    }
+                    continue;
+                }
+
+                // Handle owner filter for AMIs (format: "owner:VALUE" -> Owner.N=VALUE)
+                // Supports: self, amazon, aws-marketplace, or AWS account ID
+                if key.starts_with("owner:") {
+                    if let Value::Array(arr) = value {
+                        for item in arr.iter() {
+                            if let Some(s) = item.as_str() {
+                                query_params
+                                    .push((format!("Owner.{}", owner_index), s.to_string()));
+                                owner_index += 1;
+                            }
+                        }
+                    }
+                    continue;
+                }
+
+                // Handle generic filters (format: "filter:key" -> Filter.N.Name=key, Filter.N.Value.1=value)
+                if let Some(filter_key) = key.strip_prefix("filter:") {
+                    if let Value::Array(arr) = value {
+                        query_params.push((
+                            format!("Filter.{}.Name", filter_index),
+                            filter_key.to_string(),
+                        ));
                         for (i, item) in arr.iter().enumerate() {
                             if let Some(s) = item.as_str() {
                                 query_params.push((
