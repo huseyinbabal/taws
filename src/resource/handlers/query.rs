@@ -110,8 +110,7 @@ impl QueryProtocolHandler {
                 }
 
                 // Handle generic filters (format: "filter:key" -> Filter.N.Name=key, Filter.N.Value.1=value)
-                if key.starts_with("filter:") {
-                    let filter_key = &key[7..]; // Remove "filter:" prefix
+                if let Some(filter_key) = key.strip_prefix("filter:") {
                     if let Value::Array(arr) = value {
                         query_params.push((
                             format!("Filter.{}.Name", filter_index),
