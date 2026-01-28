@@ -7,14 +7,23 @@ use anyhow::Result;
 use super::credentials::{load_credentials, load_credentials_with_sso_check, CredentialsError};
 use super::http::AwsHttpClient;
 
-/// Result type for client creation that may require SSO login
+/// Result type for client creation that may require login
 pub enum ClientResult {
     /// Client created successfully
     Ok(AwsClients, String),
-    /// SSO login required before client can be created
+    /// SSO login required before client can be created (IAM Identity Center)
+    /// User needs to run `aws sso login --profile <profile>`
     SsoLoginRequired {
         profile: String,
         sso_session: String,
+        region: String,
+        endpoint_url: Option<String>,
+    },
+    /// Console login required before client can be created (Console credentials)
+    /// User needs to run `aws login --profile <profile>`
+    ConsoleLoginRequired {
+        profile: String,
+        login_session: String,
         region: String,
         endpoint_url: Option<String>,
     },
@@ -87,6 +96,15 @@ impl AwsClients {
             }) => Ok(ClientResult::SsoLoginRequired {
                 profile,
                 sso_session,
+                region,
+                endpoint_url: endpoint,
+            }),
+            Err(CredentialsError::ConsoleLoginRequired {
+                profile,
+                login_session,
+            }) => Ok(ClientResult::ConsoleLoginRequired {
+                profile,
+                login_session,
                 region,
                 endpoint_url: endpoint,
             }),

@@ -4,6 +4,7 @@
 //! - Environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN)
 //! - AWS profiles (~/.aws/credentials and ~/.aws/config)
 //! - AWS SSO (IAM Identity Center) via cached tokens
+//! - Console Login (aws login command) via cached tokens in ~/.aws/login/cache/
 //! - IAM Role assumption via role_arn and source_profile/credential_source
 //! - ECS container credentials (via credential_source = EcsContainer)
 //! - IMDSv2 (EC2 instance metadata)
@@ -19,13 +20,31 @@ use std::time::{Duration, Instant};
 use thiserror::Error;
 use tracing::{debug, trace};
 
-/// Specific error for SSO login required
+/// Specific errors for credential loading failures
+///
+/// This enum distinguishes between different authentication methods:
+/// - `SsoLoginRequired`: IAM Identity Center (aws sso login) - uses sso_session config
+/// - `ConsoleLoginRequired`: Console credentials (aws login) - uses login_session config
 #[derive(Debug, Error)]
 pub enum CredentialsError {
-    #[error("SSO login required for profile '{profile}' (session: {sso_session})")]
+    /// SSO login required - user needs to run `aws sso login`
+    /// This is for IAM Identity Center authentication which uses:
+    /// - Profile config: sso_session, sso_account_id, sso_role_name, sso_region
+    /// - Token cache: ~/.aws/sso/cache/
+    #[error("SSO login required for profile '{profile}' (session: {sso_session}). Run 'aws sso login --profile {profile}'")]
     SsoLoginRequired {
         profile: String,
         sso_session: String,
+    },
+
+    /// Console login required - user needs to run `aws login`
+    /// This is for AWS Console credentials authentication which uses:
+    /// - Profile config: login_session (typically an IAM user/role ARN)
+    /// - Token cache: ~/.aws/login/cache/
+    #[error("Console login required for profile '{profile}' (session: {login_session}). Run 'aws login --profile {profile}'")]
+    ConsoleLoginRequired {
+        profile: String,
+        login_session: String,
     },
 
     #[error("{0}")]
@@ -64,6 +83,10 @@ static ASSUME_ROLE_CACHE: OnceLock<std::sync::Mutex<HashMap<String, CachedImdsCr
 /// Global cache for ECS container credentials
 static ECS_CACHE: OnceLock<std::sync::Mutex<Option<CachedImdsCredentials>>> = OnceLock::new();
 
+/// Global cache for Console Login credentials (keyed by profile name)
+static CONSOLE_LOGIN_CACHE: OnceLock<std::sync::Mutex<HashMap<String, CachedImdsCredentials>>> =
+    OnceLock::new();
+
 /// ECS container credentials endpoint base
 const ECS_CREDENTIALS_ENDPOINT: &str = "http://169.254.170.2";
 
@@ -84,16 +107,32 @@ pub fn load_credentials(profile: &str) -> Result<Credentials> {
             sso_session,
         } => {
             anyhow!(
-                "SSO login required for profile '{}' (session: {})",
+                "SSO login required for profile '{}' (session: {}). Run 'aws sso login --profile {}'",
                 profile,
-                sso_session
+                sso_session,
+                profile
+            )
+        }
+        CredentialsError::ConsoleLoginRequired {
+            profile,
+            login_session,
+        } => {
+            anyhow!(
+                "Console login required for profile '{}' (session: {}). Run 'aws login --profile {}'",
+                profile,
+                login_session,
+                profile
             )
         }
         CredentialsError::Other(e) => e,
     })
 }
 
-/// Load credentials with detailed error for SSO
+/// Load credentials with detailed error types for SSO and Console Login
+///
+/// Returns specific error variants that distinguish between:
+/// - `SsoLoginRequired`: User needs to run `aws sso login` (IAM Identity Center)
+/// - `ConsoleLoginRequired`: User needs to run `aws login` (Console credentials)
 pub fn load_credentials_with_sso_check(profile: &str) -> Result<Credentials, CredentialsError> {
     load_credentials_inner(profile)
 }
@@ -128,6 +167,33 @@ fn load_credentials_inner(profile: &str) -> Result<Credentials, CredentialsError
                 return Err(CredentialsError::SsoLoginRequired {
                     profile: profile.to_string(),
                     sso_session: sso_config.sso_session,
+                });
+            }
+        }
+    }
+
+    // 2.5. Check if console login is configured for this profile (aws login)
+    if let Some(login_session) = get_login_session_config(profile) {
+        debug!(
+            "Console login session configured for profile '{}': {}",
+            profile, login_session
+        );
+        match load_from_console_login(profile, &login_session) {
+            Ok(creds) => {
+                debug!(
+                    "Loaded credentials from console login cache for profile '{}'",
+                    profile
+                );
+                return Ok(creds);
+            }
+            Err(e) => {
+                debug!(
+                    "Console login configured for profile '{}' but credentials unavailable: {}",
+                    profile, e
+                );
+                return Err(CredentialsError::ConsoleLoginRequired {
+                    profile: profile.to_string(),
+                    login_session,
                 });
             }
         }
@@ -197,7 +263,8 @@ fn load_credentials_inner(profile: &str) -> Result<Credentials, CredentialsError
     }
 
     Err(CredentialsError::Other(anyhow!(
-        "No credentials found for profile '{}'. Run 'aws configure' or 'aws sso login --profile {}' or set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY",
+        "No credentials found for profile '{}'. Run 'aws configure', 'aws sso login --profile {}', 'aws login --profile {}', or set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY",
+        profile,
         profile,
         profile
     )))
@@ -406,6 +473,154 @@ fn load_from_sso(profile: &str) -> Result<Credentials> {
             },
         );
         debug!("Cached SSO credentials for profile '{}'", profile);
+    }
+
+    Ok(credentials)
+}
+
+// =============================================================================
+// Console Login Support (aws login command)
+// =============================================================================
+
+/// Check if console login is configured for a profile
+fn get_login_session_config(profile: &str) -> Option<String> {
+    let config_path = get_aws_config_file_path().ok()?;
+    let content = fs::read_to_string(&config_path).ok()?;
+    let sections = parse_ini_file(&content);
+
+    sections
+        .get(profile)
+        .and_then(|section| section.get("login_session").cloned())
+}
+
+/// Get the console login cache directory
+/// Respects AWS_LOGIN_CACHE_DIRECTORY environment variable
+fn get_login_cache_dir() -> Result<PathBuf> {
+    if let Ok(dir) = env::var("AWS_LOGIN_CACHE_DIRECTORY") {
+        return Ok(PathBuf::from(dir));
+    }
+    Ok(aws_config_dir()?.join("login").join("cache"))
+}
+
+/// Load credentials from console login cache (~/.aws/login/cache/)
+/// Cache filename is SHA256(login_session.trim()).hex() + ".json"
+fn load_from_console_login(profile: &str, login_session: &str) -> Result<Credentials> {
+    use sha2::{Digest, Sha256};
+
+    // Check cache first
+    let cache = CONSOLE_LOGIN_CACHE.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
+
+    if let Ok(guard) = cache.lock() {
+        if let Some(cached) = guard.get(profile) {
+            if cached.expiration > Instant::now() + CREDENTIAL_REFRESH_BUFFER {
+                trace!(
+                    "Using cached console login credentials for profile '{}'",
+                    profile
+                );
+                return Ok(cached.credentials.clone());
+            }
+        }
+    }
+
+    let cache_dir = get_login_cache_dir()?;
+
+    if !cache_dir.exists() {
+        return Err(anyhow!(
+            "Console login cache directory not found. Run 'aws login'"
+        ));
+    }
+
+    // Cache filename is SHA256 hash of the login_session ARN (trimmed)
+    let mut hasher = Sha256::new();
+    hasher.update(login_session.trim().as_bytes());
+    let hash = hasher.finalize();
+    let cache_filename = format!("{:x}.json", hash);
+    let cache_file = cache_dir.join(&cache_filename);
+
+    if !cache_file.exists() {
+        return Err(anyhow!(
+            "No login cache file found for profile '{}'. Run 'aws login --profile {}'",
+            profile,
+            profile
+        ));
+    }
+
+    debug!("Reading login cache from {:?}", cache_file);
+
+    let content = fs::read_to_string(&cache_file)
+        .map_err(|e| anyhow!("Failed to read login cache: {}", e))?;
+
+    let cache_data: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| anyhow!("Failed to parse login cache: {}", e))?;
+
+    // Extract credentials from accessToken object
+    let access_token = cache_data
+        .get("accessToken")
+        .ok_or_else(|| anyhow!("accessToken not found in login cache"))?;
+
+    let access_key_id = access_token
+        .get("accessKeyId")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("accessKeyId not found in login cache"))?
+        .to_string();
+
+    let secret_access_key = access_token
+        .get("secretAccessKey")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("secretAccessKey not found in login cache"))?
+        .to_string();
+
+    let session_token = access_token
+        .get("sessionToken")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    // Check expiration and determine cache duration
+    let expiration = if let Some(exp_str) = access_token.get("expiresAt").and_then(|v| v.as_str()) {
+        if let Ok(expiration_time) = chrono::DateTime::parse_from_rfc3339(exp_str) {
+            if expiration_time <= chrono::Utc::now() {
+                return Err(anyhow!(
+                    "Console login credentials expired. Run 'aws login --profile {}'",
+                    profile
+                ));
+            }
+            trace!("Login credentials valid until: {}", expiration_time);
+
+            // Convert to Instant for caching
+            let now = chrono::Utc::now();
+            let duration_until_expiration = (expiration_time.with_timezone(&chrono::Utc) - now)
+                .to_std()
+                .unwrap_or(Duration::from_secs(3600));
+            Instant::now() + duration_until_expiration
+        } else {
+            // Default to 1 hour if parsing fails
+            Instant::now() + Duration::from_secs(3600)
+        }
+    } else {
+        // Default to 1 hour if no expiration provided
+        Instant::now() + Duration::from_secs(3600)
+    };
+
+    let credentials = Credentials {
+        access_key_id,
+        secret_access_key,
+        session_token,
+    };
+
+    // Cache the credentials
+    if let Ok(mut guard) = cache.lock() {
+        guard.insert(
+            profile.to_string(),
+            CachedImdsCredentials {
+                credentials: credentials.clone(),
+                expiration,
+            },
+        );
+        debug!(
+            "Cached console login credentials for profile '{}', expires in {:?}",
+            profile,
+            expiration - Instant::now()
+        );
     }
 
     Ok(credentials)
@@ -1873,5 +2088,321 @@ credential_source = Environment
         let role_arn = "arn:aws:iam::123456789012:role/TestRole";
         let result = try_read_cli_cache_file(temp_file.path(), role_arn);
         assert!(result.is_none(), "Should not return expired credentials");
+    }
+
+    #[test]
+    fn test_console_login_cache_is_profile_aware() {
+        let cache = CONSOLE_LOGIN_CACHE.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
+
+        let creds_profile_a = Credentials {
+            access_key_id: "ASIA_LOGIN_A_KEY".to_string(),
+            secret_access_key: "secret_login_a".to_string(),
+            session_token: Some("token_login_a".to_string()),
+        };
+        let creds_profile_b = Credentials {
+            access_key_id: "ASIA_LOGIN_B_KEY".to_string(),
+            secret_access_key: "secret_login_b".to_string(),
+            session_token: Some("token_login_b".to_string()),
+        };
+
+        let expiration = Instant::now() + Duration::from_secs(3600);
+
+        {
+            let mut guard = cache.lock().unwrap();
+            guard.insert(
+                "login-profile-a".to_string(),
+                CachedImdsCredentials {
+                    credentials: creds_profile_a.clone(),
+                    expiration,
+                },
+            );
+            guard.insert(
+                "login-profile-b".to_string(),
+                CachedImdsCredentials {
+                    credentials: creds_profile_b.clone(),
+                    expiration,
+                },
+            );
+        }
+
+        // Verify profile-a returns profile-a's credentials
+        {
+            let guard = cache.lock().unwrap();
+            let cached_a = guard.get("login-profile-a").unwrap();
+            assert_eq!(
+                cached_a.credentials.access_key_id, "ASIA_LOGIN_A_KEY",
+                "Profile A should return Profile A's credentials"
+            );
+        }
+
+        // Verify profile-b returns profile-b's credentials
+        {
+            let guard = cache.lock().unwrap();
+            let cached_b = guard.get("login-profile-b").unwrap();
+            assert_eq!(
+                cached_b.credentials.access_key_id, "ASIA_LOGIN_B_KEY",
+                "Profile B should return Profile B's credentials"
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_ini_file_with_login_session() {
+        let content = r#"
+[default]
+aws_access_key_id = AKIADEFAULT
+aws_secret_access_key = secret_default
+region = us-east-1
+
+[profile console-login]
+login_session = arn:aws:iam::123456789012:user/Admin
+region = us-west-2
+"#;
+        let sections = parse_ini_file(content);
+
+        // Check console-login profile
+        assert!(sections.contains_key("console-login"));
+        let login_section = sections.get("console-login").unwrap();
+        assert_eq!(
+            login_section.get("login_session").unwrap(),
+            "arn:aws:iam::123456789012:user/Admin"
+        );
+        assert_eq!(login_section.get("region").unwrap(), "us-west-2");
+    }
+
+    #[test]
+    fn test_load_from_console_login_valid() {
+        use sha2::{Digest, Sha256};
+        use std::io::Write;
+        use tempfile::TempDir;
+
+        // Create a temp directory structure for login cache
+        let temp_dir = TempDir::new().unwrap();
+        let cache_dir = temp_dir.path();
+
+        // Create login cache JSON with valid credentials
+        let login_cache_json = r#"{
+            "accessToken": {
+                "accessKeyId": "ASIALOGINTESTACCESSKEY",
+                "secretAccessKey": "loginTestSecretKey123",
+                "sessionToken": "loginTestSessionToken456",
+                "accountId": "123456789012",
+                "expiresAt": "2099-01-01T00:00:00Z"
+            },
+            "tokenType": "aws_sigv4",
+            "refreshToken": "testRefreshToken",
+            "idToken": "testIdToken",
+            "clientId": "arn:aws:iam::123456789012:client/test"
+        }"#;
+
+        // Calculate the cache filename (SHA256 of login_session ARN)
+        let login_session = "arn:aws:iam::123456789012:user/TestUser";
+        let mut hasher = Sha256::new();
+        hasher.update(login_session.trim().as_bytes());
+        let hash = hasher.finalize();
+        let cache_filename = format!("{:x}.json", hash);
+
+        // Write the cache file
+        let cache_file_path = cache_dir.join(&cache_filename);
+        let mut cache_file = std::fs::File::create(&cache_file_path).unwrap();
+        cache_file.write_all(login_cache_json.as_bytes()).unwrap();
+
+        // Test loading credentials using the env var to override the cache directory
+        let original_env = env::var("AWS_LOGIN_CACHE_DIRECTORY").ok();
+        env::set_var("AWS_LOGIN_CACHE_DIRECTORY", cache_dir);
+
+        let result = load_from_console_login("test-profile", login_session);
+
+        // Restore original env
+        if let Some(val) = original_env {
+            env::set_var("AWS_LOGIN_CACHE_DIRECTORY", val);
+        } else {
+            env::remove_var("AWS_LOGIN_CACHE_DIRECTORY");
+        }
+
+        assert!(
+            result.is_ok(),
+            "Should load credentials: {:?}",
+            result.err()
+        );
+        let creds = result.unwrap();
+        assert_eq!(creds.access_key_id, "ASIALOGINTESTACCESSKEY");
+        assert_eq!(creds.secret_access_key, "loginTestSecretKey123");
+        assert_eq!(
+            creds.session_token,
+            Some("loginTestSessionToken456".to_string())
+        );
+    }
+
+    #[test]
+    fn test_load_from_console_login_expired() {
+        use sha2::{Digest, Sha256};
+        use std::io::Write;
+        use tempfile::TempDir;
+
+        let temp_dir = TempDir::new().unwrap();
+        let cache_dir = temp_dir.path();
+
+        // Create login cache JSON with expired credentials
+        let login_cache_json = r#"{
+            "accessToken": {
+                "accessKeyId": "ASIAEXPIREDKEY",
+                "secretAccessKey": "expiredSecret",
+                "sessionToken": "expiredToken",
+                "accountId": "123456789012",
+                "expiresAt": "2020-01-01T00:00:00Z"
+            },
+            "tokenType": "aws_sigv4"
+        }"#;
+
+        let login_session = "arn:aws:iam::123456789012:user/ExpiredUser";
+        let mut hasher = Sha256::new();
+        hasher.update(login_session.trim().as_bytes());
+        let hash = hasher.finalize();
+        let cache_filename = format!("{:x}.json", hash);
+
+        let cache_file_path = cache_dir.join(&cache_filename);
+        let mut cache_file = std::fs::File::create(&cache_file_path).unwrap();
+        cache_file.write_all(login_cache_json.as_bytes()).unwrap();
+
+        let original_env = env::var("AWS_LOGIN_CACHE_DIRECTORY").ok();
+        env::set_var("AWS_LOGIN_CACHE_DIRECTORY", cache_dir);
+
+        let result = load_from_console_login("test-expired-profile", login_session);
+
+        if let Some(val) = original_env {
+            env::set_var("AWS_LOGIN_CACHE_DIRECTORY", val);
+        } else {
+            env::remove_var("AWS_LOGIN_CACHE_DIRECTORY");
+        }
+
+        assert!(result.is_err(), "Should fail for expired credentials");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("expired"),
+            "Error should mention expiration: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_get_login_cache_dir_default() {
+        // Test without env var set
+        let original_env = env::var("AWS_LOGIN_CACHE_DIRECTORY").ok();
+        env::remove_var("AWS_LOGIN_CACHE_DIRECTORY");
+
+        let result = get_login_cache_dir();
+
+        // Restore
+        if let Some(val) = original_env {
+            env::set_var("AWS_LOGIN_CACHE_DIRECTORY", val);
+        }
+
+        assert!(result.is_ok());
+        let path = result.unwrap();
+        // Should end with "login/cache"
+        assert!(path.ends_with("login/cache") || path.to_string_lossy().contains("login"));
+    }
+
+    #[test]
+    fn test_get_login_cache_dir_env_override() {
+        let original_env = env::var("AWS_LOGIN_CACHE_DIRECTORY").ok();
+        env::set_var("AWS_LOGIN_CACHE_DIRECTORY", "/custom/login/cache");
+
+        let result = get_login_cache_dir();
+
+        if let Some(val) = original_env {
+            env::set_var("AWS_LOGIN_CACHE_DIRECTORY", val);
+        } else {
+            env::remove_var("AWS_LOGIN_CACHE_DIRECTORY");
+        }
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), PathBuf::from("/custom/login/cache"));
+    }
+
+    #[test]
+    fn test_credentials_error_sso_vs_console_login() {
+        // Test that SSO and Console Login errors are distinct
+        let sso_error = CredentialsError::SsoLoginRequired {
+            profile: "sso-profile".to_string(),
+            sso_session: "my-sso-session".to_string(),
+        };
+
+        let console_error = CredentialsError::ConsoleLoginRequired {
+            profile: "console-profile".to_string(),
+            login_session: "arn:aws:iam::123456789012:user/Admin".to_string(),
+        };
+
+        // SSO error message should mention sso login
+        let sso_msg = sso_error.to_string();
+        assert!(
+            sso_msg.contains("aws sso login"),
+            "SSO error should suggest 'aws sso login': {}",
+            sso_msg
+        );
+        assert!(
+            sso_msg.contains("sso-profile"),
+            "SSO error should contain profile name: {}",
+            sso_msg
+        );
+        assert!(
+            sso_msg.contains("my-sso-session"),
+            "SSO error should contain session name: {}",
+            sso_msg
+        );
+
+        // Console login error message should mention aws login (not sso login)
+        let console_msg = console_error.to_string();
+        assert!(
+            console_msg.contains("aws login"),
+            "Console error should suggest 'aws login': {}",
+            console_msg
+        );
+        assert!(
+            !console_msg.contains("sso"),
+            "Console error should NOT mention 'sso': {}",
+            console_msg
+        );
+        assert!(
+            console_msg.contains("console-profile"),
+            "Console error should contain profile name: {}",
+            console_msg
+        );
+        assert!(
+            console_msg.contains("123456789012"),
+            "Console error should contain login session: {}",
+            console_msg
+        );
+    }
+
+    #[test]
+    fn test_credentials_error_matching() {
+        // Test that we can match on both error types
+        let test_cases: Vec<CredentialsError> = vec![
+            CredentialsError::SsoLoginRequired {
+                profile: "sso".to_string(),
+                sso_session: "session".to_string(),
+            },
+            CredentialsError::ConsoleLoginRequired {
+                profile: "console".to_string(),
+                login_session: "arn".to_string(),
+            },
+            CredentialsError::Other(anyhow!("generic error")),
+        ];
+
+        for error in test_cases {
+            match &error {
+                CredentialsError::SsoLoginRequired { profile, .. } => {
+                    assert_eq!(profile, "sso");
+                }
+                CredentialsError::ConsoleLoginRequired { profile, .. } => {
+                    assert_eq!(profile, "console");
+                }
+                CredentialsError::Other(e) => {
+                    assert!(e.to_string().contains("generic"));
+                }
+            }
+        }
     }
 }
