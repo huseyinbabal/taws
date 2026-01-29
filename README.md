@@ -169,10 +169,11 @@ taws uses a credential chain, trying each source in order:
 |----------|--------|-------------|
 | 1 | Environment Variables | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` |
 | 2 | **AWS SSO** | If profile has SSO configured, uses SSO (prompts for login if needed) |
-| 3 | **Role Assumption** | If profile has `role_arn` + `source_profile`, assumes the role |
-| 4 | Credentials File | `~/.aws/credentials` |
-| 5 | Config File | `~/.aws/config` |
-| 6 | IMDSv2 | EC2 instance metadata |
+| 3 | **AWS Console Login** | If profile has `login_session` configured, prompts for console login |
+| 4 | **Role Assumption** | If profile has `role_arn` + `source_profile`, assumes the role |
+| 5 | Credentials File | `~/.aws/credentials` |
+| 6 | Config File | `~/.aws/config` |
+| 7 | IMDSv2 | EC2 instance metadata |
 
 ### AWS SSO
 
@@ -183,6 +184,22 @@ Both SSO config formats are supported:
 - Legacy: `sso_start_url` directly in profile
 
 If you already logged in via `aws sso login`, taws will use the cached token automatically.
+
+### AWS Console Login
+
+taws supports AWS Console Login (`aws login`). If your profile uses `login_session` and credentials are expired, taws will prompt you to run `aws login` in another terminal.
+
+```ini
+[profile console-profile]
+login_session = my-login-session
+
+[login-session my-login-session]
+sso_start_url = https://my-portal.awsapps.com/start
+sso_region = us-east-1
+sso_registration_scopes = sso:account:access
+```
+
+If you already logged in via `aws login`, taws will use the cached credentials automatically.
 
 ### IAM Role Assumption
 
