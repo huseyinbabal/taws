@@ -1,4 +1,4 @@
-use crate::app::{App, Mode, SsoLoginState};
+use crate::app::{App, ConsoleLoginState, Mode, SsoLoginState};
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -12,6 +12,7 @@ pub fn render(f: &mut Frame, app: &App) {
         Mode::Confirm => render_confirm_dialog(f, app),
         Mode::Warning => render_warning_dialog(f, app),
         Mode::SsoLogin => render_sso_dialog(f, app),
+        Mode::ConsoleLogin => render_console_login_dialog(f, app),
         _ => {}
     }
 }
@@ -285,6 +286,179 @@ fn render_sso_dialog(f: &mut Frame, app: &App) {
                 Line::from(""),
                 Line::from(Span::styled(
                     "Press Enter or Esc to close",
+                    Style::default().fg(Color::DarkGray),
+                )),
+            ];
+
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Red));
+
+            let paragraph = Paragraph::new(text)
+                .block(block)
+                .alignment(Alignment::Center);
+
+            f.render_widget(paragraph, area);
+        }
+    }
+}
+
+fn render_console_login_dialog(f: &mut Frame, app: &App) {
+    let Some(ref console_state) = app.console_login_state else {
+        return;
+    };
+
+    match console_state {
+        ConsoleLoginState::Prompt {
+            profile,
+            login_session,
+        } => {
+            let area = centered_rect(70, 12, f.area());
+            f.render_widget(Clear, area);
+
+            let text = vec![
+                Line::from(Span::styled(
+                    "<Console Login Required>",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    format!("Profile '{}' requires AWS Console login.", profile),
+                    Style::default().fg(Color::White),
+                )),
+                Line::from(Span::styled(
+                    format!("Session: {}", login_session),
+                    Style::default().fg(Color::DarkGray),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Press Enter to open browser for login",
+                    Style::default().fg(Color::Yellow),
+                )),
+                Line::from(Span::styled(
+                    "(requires AWS CLI v2.32.0+)",
+                    Style::default().fg(Color::DarkGray),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Press Esc to cancel",
+                    Style::default().fg(Color::DarkGray),
+                )),
+            ];
+
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan));
+
+            let paragraph = Paragraph::new(text)
+                .block(block)
+                .alignment(Alignment::Center);
+
+            f.render_widget(paragraph, area);
+        }
+
+        ConsoleLoginState::WaitingForAuth { profile, url, .. } => {
+            // Adjust height based on whether URL is shown
+            let height = if url.is_some() { 14 } else { 11 };
+            let area = centered_rect(70, height, f.area());
+            f.render_widget(Clear, area);
+
+            let mut text = vec![
+                Line::from(Span::styled(
+                    "<Waiting for Console Authentication>",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Complete authentication in your browser.",
+                    Style::default().fg(Color::White),
+                )),
+                Line::from(""),
+            ];
+
+            // Display URL if available (like SSO does)
+            if let Some(ref login_url) = url {
+                text.push(Line::from(Span::styled(
+                    "If browser didn't open, visit:",
+                    Style::default().fg(Color::DarkGray),
+                )));
+                text.push(Line::from(Span::styled(
+                    login_url.as_str(),
+                    Style::default().fg(Color::Blue),
+                )));
+                text.push(Line::from(""));
+            }
+
+            text.push(Line::from(Span::styled(
+                format!("Profile: {}", profile),
+                Style::default().fg(Color::DarkGray),
+            )));
+            text.push(Line::from(Span::styled(
+                "Waiting... (Press Esc to cancel)",
+                Style::default().fg(Color::DarkGray),
+            )));
+
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Yellow));
+
+            let paragraph = Paragraph::new(text)
+                .block(block)
+                .alignment(Alignment::Center);
+
+            f.render_widget(paragraph, area);
+        }
+
+        ConsoleLoginState::Success { profile } => {
+            let area = centered_rect(50, 7, f.area());
+            f.render_widget(Clear, area);
+
+            let text = vec![
+                Line::from(Span::styled(
+                    "<Console Login Successful>",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    format!("Authentication complete for '{}'!", profile),
+                    Style::default().fg(Color::White),
+                )),
+            ];
+
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Green));
+
+            let paragraph = Paragraph::new(text)
+                .block(block)
+                .alignment(Alignment::Center);
+
+            f.render_widget(paragraph, area);
+        }
+
+        ConsoleLoginState::Failed { error, .. } => {
+            let area = centered_rect(70, 11, f.area());
+            f.render_widget(Clear, area);
+
+            let text = vec![
+                Line::from(Span::styled(
+                    "<Console Login Failed>",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    error.as_str(),
+                    Style::default().fg(Color::White),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Press Enter to retry, Esc to cancel",
                     Style::default().fg(Color::DarkGray),
                 )),
             ];
