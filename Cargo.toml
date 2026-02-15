@@ -19,7 +19,7 @@ crossterm = "0.29"
 # AWS (lightweight - SigV4 only, no SDK)
 aws-sigv4 = "1.2"
 aws-credential-types = "1.2"
-aws-smithy-runtime-api = "1.2"
+aws-smithy-runtime-api = "1.11"
 
 # HTTP client (using rustls to avoid OpenSSL cross-compilation issues)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
