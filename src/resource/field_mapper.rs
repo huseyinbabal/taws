@@ -98,7 +98,7 @@ fn transform_route53_record_value(value: &Value) -> Value {
             .unwrap_or("-");
         return Value::String(dns_name.to_string());
     }
-    
+
     // Check for ResourceRecords
     if let Some(resource_records) = value.get("ResourceRecords") {
         if let Some(records) = resource_records.get("ResourceRecord") {
@@ -107,7 +107,7 @@ fn transform_route53_record_value(value: &Value) -> Value {
                 obj @ Value::Object(_) => vec![obj.clone()],
                 _ => return Value::String("-".to_string()),
             };
-            
+
             let values: Vec<String> = arr
                 .iter()
                 .filter_map(|item| {
@@ -117,13 +117,13 @@ fn transform_route53_record_value(value: &Value) -> Value {
                         .map(|s| s.to_string())
                 })
                 .collect();
-            
+
             if !values.is_empty() {
                 return Value::String(values.join(", "));
             }
         }
     }
-    
+
     Value::String("-".to_string())
 }
 
