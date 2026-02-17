@@ -68,6 +68,7 @@ fn apply_transform(value: &Value, transform: &str) -> Value {
         "array_to_csv" => transform_array_to_csv(value),
         "first_item" => transform_first_item(value),
         "private_zone_to_type" => transform_private_zone_to_type(value),
+        "route53_record_value" => transform_route53_record_value(value),
         _ => value.clone(),
     }
 }
@@ -82,6 +83,48 @@ fn transform_private_zone_to_type(value: &Value) -> Value {
         }
         _ => Value::String("Public".to_string()),
     }
+}
+
+/// Transform Route53 record to value string
+/// Handles both ResourceRecords and AliasTarget
+/// ResourceRecords: [{"Value": "192.0.2.1"}] -> "192.0.2.1"
+/// AliasTarget: {"DNSName": "example.com"} -> "example.com"
+fn transform_route53_record_value(value: &Value) -> Value {
+    // Check for AliasTarget first
+    if let Some(alias_target) = value.get("AliasTarget") {
+        let dns_name = alias_target
+            .get("DNSName")
+            .and_then(|v| v.as_str())
+            .unwrap_or("-");
+        return Value::String(dns_name.to_string());
+    }
+    
+    // Check for ResourceRecords
+    if let Some(resource_records) = value.get("ResourceRecords") {
+        if let Some(records) = resource_records.get("ResourceRecord") {
+            let arr = match records {
+                Value::Array(a) => a.clone(),
+                obj @ Value::Object(_) => vec![obj.clone()],
+                _ => return Value::String("-".to_string()),
+            };
+            
+            let values: Vec<String> = arr
+                .iter()
+                .filter_map(|item| {
+                    item.get("Value")
+                        .or_else(|| item.get("value"))
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                })
+                .collect();
+            
+            if !values.is_empty() {
+                return Value::String(values.join(", "));
+            }
+        }
+    }
+    
+    Value::String("-".to_string())
 }
 
 /// Transform AWS tag array to a key-value map
