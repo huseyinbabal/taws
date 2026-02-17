@@ -47,6 +47,7 @@
       "id_field": "Key",
       "name_field": "DisplayName",
       "is_global": false,
+      "requires_parent": true,
       "columns": [
         { "header": "NAME", "json_path": "DisplayName", "width": 50 },
         { "header": "SIZE", "json_path": "Size", "width": 12 },

@@ -71,6 +71,14 @@ pub struct SubResourceDef {
     pub shortcut: String,
     pub parent_id_field: String,
     pub filter_param: String,
+    /// Filter type: "scalar" (default) for single-value params (IAM, ELBv2, RDS),
+    /// "ec2_filter" for EC2-style Filter.N.Name/Value params (VPC subnets, security groups)
+    #[serde(default = "default_filter_type")]
+    pub filter_type: String,
+}
+
+fn default_filter_type() -> String {
+    "scalar".to_string()
 }
 
 /// Confirmation config for actions
@@ -85,6 +93,17 @@ pub struct ConfirmConfig {
     /// If true, action is destructive (shown in red)
     #[serde(default)]
     pub destructive: bool,
+}
+
+/// Filters configuration for resources that support AWS API filtering
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct FiltersConfig {
+    /// Whether this resource supports filtering via AWS API
+    #[serde(default)]
+    pub enabled: bool,
+    /// Hint text showing available filter keys (e.g., "owner, architecture, state")
+    #[serde(default)]
+    pub hint: Option<String>,
 }
 
 /// Action definition from JSON
@@ -181,12 +200,37 @@ pub struct ResourceDef {
     /// For fetching single resource details
     #[serde(default)]
     pub describe_config: Option<DescribeConfig>,
+
+    /// Filters configuration
+    /// If present and enabled, the resource supports AWS API filtering (Filters: key=value)
+    #[serde(default)]
+    pub filters_config: Option<FiltersConfig>,
+
+    /// If true, this resource requires a parent context and cannot be accessed directly
+    /// Used for sub-resources like Log Streams that need a Log Group
+    #[serde(default)]
+    pub requires_parent: bool,
 }
 
 impl ResourceDef {
     /// Check if this resource has API config for list operations
     pub fn has_api_config(&self) -> bool {
         self.api_config.is_some() && !self.field_mappings.is_empty()
+    }
+
+    /// Check if this resource supports filtering via AWS API
+    pub fn supports_filters(&self) -> bool {
+        self.filters_config
+            .as_ref()
+            .map(|fc| fc.enabled)
+            .unwrap_or(false)
+    }
+
+    /// Get the filter hint for this resource
+    pub fn filters_hint(&self) -> Option<&str> {
+        self.filters_config
+            .as_ref()
+            .and_then(|fc| fc.hint.as_deref())
     }
 }
 
@@ -227,11 +271,13 @@ pub fn get_resource(key: &str) -> Option<&'static ResourceDef> {
 }
 
 /// Get all resource keys (for autocomplete)
+/// Excludes resources that require a parent context (like log-streams, ecs-tasks, etc.)
 pub fn get_all_resource_keys() -> Vec<&'static str> {
     get_registry()
         .resources
-        .keys()
-        .map(|s| s.as_str())
+        .iter()
+        .filter(|(_, def)| !def.requires_parent)
+        .map(|(key, _)| key.as_str())
         .collect()
 }
 

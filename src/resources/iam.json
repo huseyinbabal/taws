@@ -49,6 +49,7 @@
       "id_field": "PolicyName",
       "name_field": "PolicyName",
       "is_global": true,
+      "requires_parent": true,
       "columns": [
         { "header": "POLICY NAME", "json_path": "PolicyName", "width": 28 },
         { "header": "ARN", "json_path": "PolicyArn", "width": 34 }
@@ -77,6 +78,7 @@
       "id_field": "GroupId",
       "name_field": "GroupName",
       "is_global": true,
+      "requires_parent": true,
       "columns": [
         { "header": "GROUP NAME", "json_path": "GroupName", "width": 25 },
         { "header": "GROUP ID", "json_path": "GroupId", "width": 24 },
@@ -107,6 +109,7 @@
       "id_field": "AccessKeyId",
       "name_field": "AccessKeyId",
       "is_global": true,
+      "requires_parent": true,
       "columns": [
         { "header": "ACCESS KEY ID", "json_path": "AccessKeyId", "width": 25 },
         { "header": "STATUS", "json_path": "Status", "width": 10, "color_map": "state" },
@@ -176,6 +179,7 @@
       "id_field": "PolicyName",
       "name_field": "PolicyName",
       "is_global": true,
+      "requires_parent": true,
       "columns": [
         { "header": "POLICY NAME", "json_path": "PolicyName", "width": 28 },
         { "header": "ARN", "json_path": "PolicyArn", "width": 34 }
@@ -274,6 +278,7 @@
       "id_field": "UserId",
       "name_field": "UserName",
       "is_global": true,
+      "requires_parent": true,
       "columns": [
         { "header": "USER NAME", "json_path": "UserName", "width": 22 },
         { "header": "USER ID", "json_path": "UserId", "width": 24 },

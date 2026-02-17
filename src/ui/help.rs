@@ -7,13 +7,51 @@ use ratatui::{
     Frame,
 };
 
-pub fn render(f: &mut Frame, _app: &App) {
+pub fn render(f: &mut Frame, app: &App) {
     let area = centered_rect(60, 70, f.area());
 
     f.render_widget(Clear, area);
 
-    let help_text = vec![
-        Line::from(""),
+    let mut help_text: Vec<Line<'static>> = vec![Line::from("")];
+
+    // Add resource-specific actions section FIRST (most important)
+    if let Some(resource) = app.current_resource() {
+        if !resource.actions.is_empty() {
+            let section_title = format!("{} Actions", resource.display_name);
+            help_text.push(create_section(&section_title));
+            for action in &resource.actions {
+                let shortcut = action.shortcut.as_deref().unwrap_or(&action.key);
+                help_text.push(create_key_line(shortcut, &action.display_name));
+            }
+            help_text.push(Line::from(""));
+        }
+
+        // Add sub-resources navigation section if resource has sub-resources
+        if !resource.sub_resources.is_empty() {
+            help_text.push(create_section("Sub-resources"));
+            for sub in &resource.sub_resources {
+                help_text.push(create_key_line(&sub.shortcut, &sub.display_name));
+            }
+            help_text.push(Line::from(""));
+        }
+    }
+
+    // Add Log Tail section only for CloudWatch log streams
+    if app.current_resource_key == "cloudwatch-log-streams" {
+        help_text.extend(vec![
+            create_section("Log Tail Mode"),
+            create_key_line("t", "Tail logs"),
+            create_key_line("j / k", "Scroll up/down"),
+            create_key_line("G", "Go to bottom (live mode)"),
+            create_key_line("g", "Go to top"),
+            create_key_line("SPACE", "Pause/resume"),
+            create_key_line("q / Esc", "Exit log tail"),
+            Line::from(""),
+        ]);
+    }
+
+    // Add navigation and general sections
+    help_text.extend(vec![
         create_section("Navigation"),
         create_key_line("j / ↓", "Move down"),
         create_key_line("k / ↑", "Move up"),
@@ -30,47 +68,15 @@ pub fn render(f: &mut Frame, _app: &App) {
         create_key_line("J", "Show JSON view"),
         create_key_line("?", "Toggle help"),
         Line::from(""),
-        create_section("Details View"),
-        create_key_line("j / k", "Scroll up/down"),
-        create_key_line("PgUp / Ctrl+b", "Page up"),
-        create_key_line("PgDn / Ctrl+f", "Page down"),
-        create_key_line("g / Home", "Go to top"),
-        create_key_line("G / End", "Go to bottom"),
-        create_key_line("/", "Search in content"),
-        create_key_line("n / N", "Next/prev match"),
-        create_key_line("q / Esc / d", "Close details"),
-        Line::from(""),
-        create_section("EC2 Actions"),
-        create_key_line("c", "Connect via SSM"),
-        create_key_line("s", "Start instance"),
-        create_key_line("S", "Stop instance"),
-        create_key_line("r", "Reboot instance"),
-        create_key_line("Ctrl+d", "Terminate (destructive)"),
-        Line::from(""),
-        create_section("Log Tail Mode"),
-        create_key_line("t", "Tail logs (on log stream)"),
-        create_key_line("j / k", "Scroll up/down"),
-        create_key_line("G", "Go to bottom (live mode)"),
-        create_key_line("g", "Go to top"),
-        create_key_line("SPACE", "Pause/resume"),
-        create_key_line("q / Esc", "Exit log tail"),
-        Line::from(""),
-        create_section("Auto-refresh"),
-        create_key_line("", "List refreshes every 5s"),
-        Line::from(""),
-        create_section("Modes"),
-        create_key_line("/", "Filter mode"),
-        create_key_line(":", "Resources mode"),
-        Line::from(""),
-        create_section("Resources"),
-        create_key_line(":ec2", "EC2 instances view"),
-        create_key_line(":vpc", "VPC view"),
-        create_key_line(":profiles", "List AWS profiles"),
-        create_key_line(":regions", "List AWS regions"),
-        Line::from(""),
+        create_section("General"),
+        create_key_line("/", "Filter / Search"),
+        create_key_line(":", "Command mode"),
+        create_key_line(":profiles", "Switch AWS profile"),
+        create_key_line(":regions", "Switch AWS region"),
+        create_key_line("Backspace", "Go back"),
         create_key_line("Esc", "Close / Cancel"),
-        create_key_line("Ctrl+c", "Quit application"),
-    ];
+        create_key_line("Ctrl+c", "Quit"),
+    ]);
 
     let block = Block::default()
         .title(" Help ")
@@ -87,7 +93,7 @@ pub fn render(f: &mut Frame, _app: &App) {
     f.render_widget(paragraph, area);
 }
 
-fn create_section(title: &str) -> Line<'_> {
+fn create_section(title: &str) -> Line<'static> {
     Line::from(vec![Span::styled(
         format!("  {} ", title),
         Style::default()
@@ -96,7 +102,7 @@ fn create_section(title: &str) -> Line<'_> {
     )])
 }
 
-fn create_key_line<'a>(key: &'a str, description: &'a str) -> Line<'a> {
+fn create_key_line(key: &str, description: &str) -> Line<'static> {
     Line::from(vec![
         Span::raw("    "),
         Span::styled(
@@ -106,7 +112,7 @@ fn create_key_line<'a>(key: &'a str, description: &'a str) -> Line<'a> {
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw("  "),
-        Span::styled(description, Style::default().fg(Color::White)),
+        Span::styled(description.to_string(), Style::default().fg(Color::White)),
     ])
 }
 

@@ -35,7 +35,7 @@
 - **Keyboard-Driven** - Vim-like navigation and commands
 - **Resource Actions** - Start, stop, terminate EC2 instances directly
 - **Detailed Views** - JSON/YAML view of resource details
-- **Filtering** - Filter resources by name or attributes
+- **Filtering** - Filter resources locally with fuzzy matching, or by AWS tags (server-side) for supported resources
 - **Autocomplete** - Smart resource type autocomplete with fuzzy matching
 
 ---
@@ -169,10 +169,11 @@ taws uses a credential chain, trying each source in order:
 |----------|--------|-------------|
 | 1 | Environment Variables | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` |
 | 2 | **AWS SSO** | If profile has SSO configured, uses SSO (prompts for login if needed) |
-| 3 | **Role Assumption** | If profile has `role_arn` + `source_profile`, assumes the role |
-| 4 | Credentials File | `~/.aws/credentials` |
-| 5 | Config File | `~/.aws/config` |
-| 6 | IMDSv2 | EC2 instance metadata |
+| 3 | **AWS Console Login** | If profile has `login_session` configured, prompts for console login |
+| 4 | **Role Assumption** | If profile has `role_arn` + `source_profile`, assumes the role |
+| 5 | Credentials File | `~/.aws/credentials` |
+| 6 | Config File | `~/.aws/config` |
+| 7 | IMDSv2 | EC2 instance metadata |
 
 ### AWS SSO
 
@@ -183,6 +184,22 @@ Both SSO config formats are supported:
 - Legacy: `sso_start_url` directly in profile
 
 If you already logged in via `aws sso login`, taws will use the cached token automatically.
+
+### AWS Console Login
+
+taws supports AWS Console Login (`aws login`). If your profile uses `login_session` and credentials are expired, taws will prompt you to run `aws login` in another terminal.
+
+```ini
+[profile console-profile]
+login_session = my-login-session
+
+[login-session my-login-session]
+sso_start_url = https://my-portal.awsapps.com/start
+sso_region = us-east-1
+sso_registration_scopes = sso:account:access
+```
+
+If you already logged in via `aws login`, taws will use the cached credentials automatically.
 
 ### IAM Role Assumption
 
@@ -348,6 +365,57 @@ After adding the completion script, restart your shell or source the config file
 
 ---
 
+## Filtering
+
+Press `/` to enter filter mode. taws supports two types of filtering:
+
+### Local Filtering (All Resources)
+
+Type any text to filter resources locally by name, ID, or other visible attributes. Uses fuzzy matching.
+
+```
+/web-server     # Filter by name containing "web-server"
+/i-0123         # Filter by instance ID
+```
+
+### AWS API Filtering (Server-Side)
+
+For supported resources, you can filter using AWS API filters directly. This is more efficient for large resource lists as filtering happens server-side.
+
+**How to use:**
+1. Press `/` to enter filter mode
+2. Type `F` and press `Tab` to autocomplete `Filters: `
+3. Enter filter key-value pairs: `Filters: owner=amazon, architecture=arm64`
+4. Press `Enter` to apply the filter (triggers AWS API call)
+5. Press `Esc` to clear the filter
+
+**Syntax:**
+```
+Filters: key=value, key2=value2
+```
+
+**Examples by Resource:**
+
+| Resource | Example Filters |
+|----------|----------------|
+| AMIs | `Filters: owner=amazon, architecture=arm64, state=available` |
+| EC2 Instances | `Filters: instance-state-name=running, tag:Environment=prod` |
+| EBS Volumes | `Filters: status=available, tag:Name=my-volume` |
+| EBS Snapshots | `Filters: status=completed, owner-id=self` |
+
+**Common Filter Keys:**
+
+| Filter Key | Description | Example Values |
+|------------|-------------|----------------|
+| `owner` | AMI owner (AMIs only) | `amazon`, `self`, `aws-marketplace`, `<account-id>` |
+| `architecture` | CPU architecture | `arm64`, `x86_64` |
+| `state` / `status` | Resource state | `available`, `running`, `stopped` |
+| `tag:<key>` | Filter by tag | `tag:Environment=production` |
+
+> **Note:** When you enter filter mode on a supported resource, taws shows available filter keys for that resource in the status bar.
+
+---
+
 ## Resource Navigation
 
 Press `:` to open the resource picker. Type to filter resources:
@@ -356,6 +424,7 @@ Press `:` to open the resource picker. Type to filter resources:
 :ec2          # EC2 Instances
 :volumes      # EBS Volumes
 :snapshots    # EBS Snapshots
+:amis         # AMIs (Amazon Machine Images)
 :lambda       # Lambda Functions
 :s3           # S3 Buckets
 :rds          # RDS Instances
@@ -373,7 +442,7 @@ taws supports **30 AWS services** with **51 resource types** covering 95%+ of ty
 
 | Category | Service | Resources |
 |----------|---------|-----------|
-| **Compute** | EC2 | Instances, Volumes, Snapshots |
+| **Compute** | EC2 | Instances, Volumes, Snapshots, AMIs |
 | | Lambda | Functions |
 | | ECS | Clusters, Services, Tasks |
 | | EKS | Clusters |

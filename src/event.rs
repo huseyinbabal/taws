@@ -29,6 +29,7 @@ async fn handle_key_event(app: &mut App, key: KeyEvent) -> Result<bool> {
         Mode::Profiles => handle_profiles_mode(app, key).await,
         Mode::Regions => handle_regions_mode(app, key).await,
         Mode::SsoLogin => handle_sso_login_mode(app, key).await,
+        Mode::ConsoleLogin => handle_console_login_mode(app, key).await,
         Mode::LogTail => handle_log_tail_mode(app, key).await,
     }
 }
@@ -160,9 +161,12 @@ async fn handle_normal_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
         KeyCode::Char('d') => app.enter_describe_mode().await,
         KeyCode::Enter => app.enter_describe_mode().await,
 
-        // Filter toggle
+        // Filter toggle - clears any existing tag filter and starts fresh
         KeyCode::Char('/') => {
-            app.toggle_filter();
+            if app.start_new_filter() {
+                // Tag filter was cleared, need to refresh to remove server-side filter
+                app.refresh_current().await?;
+            }
         }
 
         // Pagination - next/previous page of results (using ] and [ to avoid conflicts with sub-resource shortcuts)
@@ -194,10 +198,13 @@ async fn handle_normal_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
             }
         }
 
-        // Escape clears filter if present
+        // Escape clears filter/tag filter if present
         KeyCode::Esc => {
             if !app.filter_text.is_empty() {
                 app.clear_filter();
+            } else if app.aws_filters.is_some() {
+                // Clear server-side AWS filters and refresh
+                app.clear_aws_filters().await?;
             } else if app.parent_context.is_some() {
                 app.navigate_back().await?;
             }
@@ -330,15 +337,53 @@ async fn handle_filter_input(app: &mut App, key: KeyEvent) -> Result<bool> {
             app.clear_filter();
         }
         KeyCode::Enter => {
+            // Check if this is an AWS filter that should trigger server-side filtering
+            if let Some(filters) = crate::app::AwsFilters::parse(&app.filter_text) {
+                if app.current_resource_supports_filters() {
+                    // Set the AWS filters and trigger a refresh
+                    app.aws_filters = Some(filters);
+                    app.filter_text.clear();
+                    app.filter_active = false;
+                    app.filters_autocomplete_shown = false;
+                    // Reset pagination and refresh with the new filters
+                    app.reset_pagination();
+                    app.refresh_current().await?;
+                    return Ok(false);
+                }
+            }
             app.filter_active = false;
+            app.filters_autocomplete_shown = false;
+        }
+        KeyCode::Tab => {
+            // Autocomplete "Filters:" when typing F/Fi/Filters
+            if app.should_show_filters_autocomplete() {
+                app.filter_text = "Filters: ".to_string();
+                app.filters_autocomplete_shown = false;
+            }
         }
         KeyCode::Backspace => {
             app.filter_text.pop();
+            // Update autocomplete state
+            app.filters_autocomplete_shown = app.should_show_filters_autocomplete();
+            app.apply_filter();
+        }
+        KeyCode::Char('/') => {
+            // Pressing '/' again clears and restarts the filter (including AWS filters)
+            if app.start_new_filter() {
+                // AWS filters were cleared, need to refresh to remove server-side filter
+                app.refresh_current().await?;
+            }
             app.apply_filter();
         }
         KeyCode::Char(c) => {
             app.filter_text.push(c);
-            app.apply_filter();
+            // Update autocomplete state
+            app.filters_autocomplete_shown = app.should_show_filters_autocomplete();
+            // Only apply client-side filter if not an AWS filter
+            let text_lower = app.filter_text.to_lowercase();
+            if !text_lower.starts_with("filters:") {
+                app.apply_filter();
+            }
         }
         _ => {}
     }
@@ -752,6 +797,240 @@ async fn handle_sso_login_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
     }
 
     Ok(false)
+}
+
+async fn handle_console_login_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
+    use crate::app::ConsoleLoginState;
+    use crate::aws::console_login;
+
+    let console_state = match &app.console_login_state {
+        Some(state) => state.clone(),
+        None => {
+            app.exit_mode();
+            return Ok(false);
+        }
+    };
+
+    match console_state {
+        ConsoleLoginState::Prompt {
+            profile,
+            login_session,
+        } => {
+            match key.code {
+                KeyCode::Enter => {
+                    // Check if AWS CLI supports `aws login`
+                    if !console_login::is_aws_login_available() {
+                        app.console_login_state = Some(ConsoleLoginState::Failed {
+                            profile: profile.clone(),
+                            error: "AWS CLI v2.32.0+ required for 'aws login' command. Please upgrade your AWS CLI.".to_string(),
+                        });
+                        return Ok(false);
+                    }
+
+                    // Spawn `aws login` subprocess
+                    match console_login::spawn_aws_login(&profile, &app.region) {
+                        Ok((child, rx)) => {
+                            app.console_login_child = Some(child);
+                            app.console_login_rx = Some(rx);
+                            app.console_login_state = Some(ConsoleLoginState::WaitingForAuth {
+                                profile,
+                                login_session,
+                                url: None,
+                            });
+                        }
+                        Err(e) => {
+                            app.console_login_state = Some(ConsoleLoginState::Failed {
+                                profile,
+                                error: format!("Failed to spawn aws login: {}", e),
+                            });
+                        }
+                    }
+                }
+                KeyCode::Esc => {
+                    app.console_login_state = None;
+                    app.console_login_child = None;
+                    app.exit_mode();
+                }
+                _ => {}
+            }
+        }
+
+        ConsoleLoginState::WaitingForAuth {
+            profile,
+            login_session,
+            ..
+        } => {
+            match key.code {
+                KeyCode::Esc => {
+                    // Kill the subprocess and cancel
+                    if let Some(mut child) = app.console_login_child.take() {
+                        let _ = child.kill();
+                    }
+                    app.console_login_state = None;
+                    app.console_login_rx = None;
+                    app.exit_mode();
+                }
+                _ => {
+                    // Check subprocess status (also done in poll_console_login_if_waiting)
+                    if let Some(ref mut child) = app.console_login_child {
+                        match console_login::check_login_status(child) {
+                            Ok(Some(true)) => {
+                                // Success! Clean up and transition
+                                app.console_login_child = None;
+                                app.console_login_rx = None;
+                                app.console_login_state =
+                                    Some(ConsoleLoginState::Success { profile });
+                            }
+                            Ok(Some(false)) => {
+                                // Failed - get error message from stderr
+                                let error = console_login::read_child_stderr(child)
+                                    .unwrap_or_else(|| "aws login command failed".to_string());
+                                app.console_login_child = None;
+                                app.console_login_rx = None;
+                                app.console_login_state =
+                                    Some(ConsoleLoginState::Failed { profile, error });
+                            }
+                            Ok(None) => {
+                                // Still running, do nothing
+                            }
+                            Err(e) => {
+                                app.console_login_child = None;
+                                app.console_login_rx = None;
+                                app.console_login_state = Some(ConsoleLoginState::Failed {
+                                    profile,
+                                    error: format!("Error checking login status: {}", e),
+                                });
+                            }
+                        }
+                    } else {
+                        // No child process - shouldn't happen, but recover
+                        app.console_login_state = Some(ConsoleLoginState::Prompt {
+                            profile,
+                            login_session,
+                        });
+                    }
+                }
+            }
+        }
+
+        ConsoleLoginState::Success { profile } => {
+            match key.code {
+                KeyCode::Enter | KeyCode::Esc => {
+                    // Now complete the profile switch with fresh credentials
+                    let profile_to_switch = profile.clone();
+                    app.console_login_state = None;
+                    app.console_login_child = None;
+                    app.console_login_rx = None;
+                    app.exit_mode();
+                    // Actually switch the profile now that login is complete
+                    if let Err(e) = app.switch_profile(&profile_to_switch).await {
+                        app.error_message = Some(format!("Failed to switch profile: {}", e));
+                    } else {
+                        let _ = app.refresh_current().await;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        ConsoleLoginState::Failed { .. } => match key.code {
+            KeyCode::Enter => {
+                // Retry - go back to prompt state
+                if let Some(ConsoleLoginState::Failed { profile, .. }) =
+                    app.console_login_state.take()
+                {
+                    // Get login_session from previous state if possible, otherwise use profile
+                    app.console_login_state = Some(ConsoleLoginState::Prompt {
+                        login_session: profile.clone(),
+                        profile,
+                    });
+                    app.console_login_rx = None;
+                } else {
+                    app.console_login_state = None;
+                    app.console_login_rx = None;
+                    app.exit_mode();
+                }
+            }
+            KeyCode::Esc => {
+                app.console_login_state = None;
+                app.console_login_child = None;
+                app.console_login_rx = None;
+                app.exit_mode();
+            }
+            _ => {}
+        },
+    }
+
+    Ok(false)
+}
+
+/// Poll console login subprocess if waiting (called from main loop)
+pub async fn poll_console_login_if_waiting(app: &mut App) {
+    use crate::app::ConsoleLoginState;
+    use crate::aws::console_login;
+
+    if app.mode != Mode::ConsoleLogin {
+        return;
+    }
+
+    let console_state = match &app.console_login_state {
+        Some(state) => state.clone(),
+        None => return,
+    };
+
+    if let ConsoleLoginState::WaitingForAuth {
+        profile,
+        login_session,
+        url,
+    } = console_state
+    {
+        // Check for URL updates from the receiver
+        if let Some(ref rx) = app.console_login_rx {
+            if let Ok(info) = rx.try_recv() {
+                if info.url.is_some() {
+                    app.console_login_state = Some(ConsoleLoginState::WaitingForAuth {
+                        profile: profile.clone(),
+                        login_session: login_session.clone(),
+                        url: info.url,
+                    });
+                }
+            }
+        }
+
+        // Check subprocess status
+        if let Some(ref mut child) = app.console_login_child {
+            match console_login::check_login_status(child) {
+                Ok(Some(true)) => {
+                    // Success!
+                    app.console_login_child = None;
+                    app.console_login_rx = None;
+                    app.console_login_state = Some(ConsoleLoginState::Success { profile });
+                }
+                Ok(Some(false)) => {
+                    // Failed - get error message from stderr
+                    let error = console_login::read_child_stderr(child)
+                        .unwrap_or_else(|| "aws login command failed".to_string());
+                    app.console_login_child = None;
+                    app.console_login_rx = None;
+                    app.console_login_state = Some(ConsoleLoginState::Failed { profile, error });
+                }
+                Ok(None) => {
+                    // Still running - update state if URL changed
+                    if url.is_none() {
+                        // Re-read state in case URL was updated above
+                    }
+                }
+                Err(e) => {
+                    app.console_login_child = None;
+                    app.console_login_rx = None;
+                    app.console_login_state = Some(ConsoleLoginState::Failed {
+                        profile,
+                        error: format!("Error checking login status: {}", e),
+                    });
+                }
+            }
+        }
+    }
 }
 
 /// Poll SSO token in background (called from main loop when in SSO waiting state)

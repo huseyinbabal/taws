@@ -63,6 +63,7 @@
       "id_field": "ListenerArn",
       "name_field": "ListenerArn",
       "is_global": false,
+      "requires_parent": true,
       "columns": [
         { "header": "PORT", "json_path": "Port", "width": 8 },
         { "header": "PROTOCOL", "json_path": "Protocol", "width": 10 },
@@ -110,6 +111,7 @@
       "id_field": "RuleArn",
       "name_field": "RuleArn",
       "is_global": false,
+      "requires_parent": true,
       "columns": [
         { "header": "PRIORITY", "json_path": "Priority", "width": 10 },
         { "header": "IS DEFAULT", "json_path": "IsDefault", "width": 12 },
@@ -210,6 +212,7 @@
       "id_field": "TargetId",
       "name_field": "TargetId",
       "is_global": false,
+      "requires_parent": true,
       "columns": [
         { "header": "TARGET ID", "json_path": "TargetId", "width": 25 },
         { "header": "PORT", "json_path": "Port", "width": 8 },

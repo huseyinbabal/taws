@@ -18,8 +18,8 @@
         { "header": "TENANCY", "json_path": "InstanceTenancy", "width": 12 }
       ],
       "sub_resources": [
-        { "shortcut": "s", "display_name": "Subnets", "resource_key": "subnets", "parent_id_field": "VpcId", "filter_param": "vpc_ids" },
-        { "shortcut": "g", "display_name": "Security Groups", "resource_key": "security-groups", "parent_id_field": "VpcId", "filter_param": "vpc_ids" }
+        { "shortcut": "s", "display_name": "Subnets", "resource_key": "subnets", "parent_id_field": "VpcId", "filter_param": "vpc-id", "filter_type": "ec2_filter" },
+        { "shortcut": "g", "display_name": "Security Groups", "resource_key": "security-groups", "parent_id_field": "VpcId", "filter_param": "vpc-id", "filter_type": "ec2_filter" }
       ],
       "actions": [],
       "api_config": {
@@ -34,6 +34,9 @@
         "IsDefault": { "source": "/isDefault", "transform": "bool_to_yes_no" },
         "InstanceTenancy": { "source": "/instanceTenancy", "default": "-" },
         "Tags": { "source": "/tagSet/item", "transform": "tags_to_map" }
+      },
+      "tag_filter": {
+        "enabled": true
       }
     },
     "subnets": {
@@ -69,6 +72,9 @@
         "AvailabilityZone": { "source": "/availabilityZone", "default": "-" },
         "AvailableIpAddressCount": { "source": "/availableIpAddressCount", "default": "0" },
         "Tags": { "source": "/tagSet/item", "transform": "tags_to_map" }
+      },
+      "tag_filter": {
+        "enabled": true
       }
     },
     "security-groups": {
@@ -99,6 +105,9 @@
         "VpcId": { "source": "/vpcId", "default": "-" },
         "Description": { "source": "/groupDescription", "default": "-" },
         "OwnerId": { "source": "/ownerId", "default": "-" }
+      },
+      "tag_filter": {
+        "enabled": true
       }
     }
   }

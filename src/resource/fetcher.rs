@@ -17,6 +17,9 @@ use serde_json::Value;
 pub struct ResourceFilter {
     pub name: String,
     pub values: Vec<String>,
+    /// Filter type: "scalar" (default) for single-value params,
+    /// "ec2_filter" for EC2-style Filter.N.Name/Value params
+    pub filter_type: String,
 }
 
 impl ResourceFilter {
@@ -24,6 +27,15 @@ impl ResourceFilter {
         Self {
             name: name.to_string(),
             values,
+            filter_type: "scalar".to_string(),
+        }
+    }
+
+    pub fn with_type(name: &str, values: Vec<String>, filter_type: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            values,
+            filter_type: filter_type.to_string(),
         }
     }
 }
@@ -66,16 +78,38 @@ pub async fn fetch_resources(
     if !filters.is_empty() {
         if let Value::Object(ref mut map) = params {
             for filter in filters {
-                map.insert(
-                    filter.name.clone(),
-                    Value::Array(
-                        filter
-                            .values
-                            .iter()
-                            .map(|v| Value::String(v.clone()))
-                            .collect(),
-                    ),
-                );
+                match filter.filter_type.as_str() {
+                    "ec2_filter" => {
+                        // EC2-style filters use Filter.N.Name/Value format
+                        // Use "filter:" prefix which query.rs handles specially
+                        let filter_key = format!("filter:{}", filter.name);
+                        map.insert(
+                            filter_key,
+                            Value::Array(
+                                filter
+                                    .values
+                                    .iter()
+                                    .map(|v| Value::String(v.clone()))
+                                    .collect(),
+                            ),
+                        );
+                    }
+                    _ => {
+                        // "scalar" (default): single value as string, multiple as array
+                        let value = if filter.values.len() == 1 {
+                            Value::String(filter.values[0].clone())
+                        } else {
+                            Value::Array(
+                                filter
+                                    .values
+                                    .iter()
+                                    .map(|v| Value::String(v.clone()))
+                                    .collect(),
+                            )
+                        };
+                        map.insert(filter.name.clone(), value);
+                    }
+                }
             }
         }
     }
@@ -131,16 +165,38 @@ pub async fn fetch_resources_paginated(
     if !filters.is_empty() {
         if let Value::Object(ref mut map) = params {
             for filter in filters {
-                map.insert(
-                    filter.name.clone(),
-                    Value::Array(
-                        filter
-                            .values
-                            .iter()
-                            .map(|v| Value::String(v.clone()))
-                            .collect(),
-                    ),
-                );
+                match filter.filter_type.as_str() {
+                    "ec2_filter" => {
+                        // EC2-style filters use Filter.N.Name/Value format
+                        // Use "filter:" prefix which query.rs handles specially
+                        let filter_key = format!("filter:{}", filter.name);
+                        map.insert(
+                            filter_key,
+                            Value::Array(
+                                filter
+                                    .values
+                                    .iter()
+                                    .map(|v| Value::String(v.clone()))
+                                    .collect(),
+                            ),
+                        );
+                    }
+                    _ => {
+                        // "scalar" (default): single value as string, multiple as array
+                        let value = if filter.values.len() == 1 {
+                            Value::String(filter.values[0].clone())
+                        } else {
+                            Value::Array(
+                                filter
+                                    .values
+                                    .iter()
+                                    .map(|v| Value::String(v.clone()))
+                                    .collect(),
+                            )
+                        };
+                        map.insert(filter.name.clone(), value);
+                    }
+                }
             }
         }
     }

@@ -57,6 +57,7 @@
       "id_field": "serviceArn",
       "name_field": "serviceArn",
       "is_global": false,
+      "requires_parent": true,
       "columns": [
         { "header": "SERVICE ARN", "json_path": "serviceArn", "width": 80 }
       ],
@@ -100,6 +101,7 @@
       "id_field": "taskArn",
       "name_field": "taskArn",
       "is_global": false,
+      "requires_parent": true,
       "columns": [
         { "header": "TASK ARN", "json_path": "taskArn", "width": 80 }
       ],

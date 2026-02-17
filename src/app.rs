@@ -12,16 +12,17 @@ use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
-    Normal,   // Viewing list
-    Command,  // : command input
-    Help,     // ? help popup
-    Confirm,  // Confirmation dialog
-    Warning,  // Warning/info dialog (OK only)
-    Profiles, // Profile selection
-    Regions,  // Region selection
-    Describe, // Viewing JSON details of selected item
-    SsoLogin, // SSO login dialog
-    LogTail,  // Tailing CloudWatch logs
+    Normal,       // Viewing list
+    Command,      // : command input
+    Help,         // ? help popup
+    Confirm,      // Confirmation dialog
+    Warning,      // Warning/info dialog (OK only)
+    Profiles,     // Profile selection
+    Regions,      // Region selection
+    Describe,     // Viewing JSON details of selected item
+    SsoLogin,     // SSO login dialog (IAM Identity Center)
+    ConsoleLogin, // Console login dialog (aws login)
+    LogTail,      // Tailing CloudWatch logs
 }
 
 /// Pending action that requires confirmation
@@ -55,6 +56,57 @@ pub struct ParentContext {
     pub display_name: String,
 }
 
+/// AWS API Filters for server-side filtering
+/// Supports key=value pairs like: architecture=arm64, owner=amazon, tag:Environment=prod
+#[derive(Debug, Clone, Default)]
+pub struct AwsFilters {
+    /// List of filter key-value pairs
+    pub filters: Vec<(String, String)>,
+}
+
+impl AwsFilters {
+    /// Parse filters from text (format: "Filters: key=value, key2=value2")
+    pub fn parse(text: &str) -> Option<Self> {
+        let text = text.trim();
+        if !text.to_lowercase().starts_with("filters:") {
+            return None;
+        }
+
+        let filters_part = text[8..].trim(); // Skip "Filters:"
+        if filters_part.is_empty() {
+            return None;
+        }
+
+        let mut filters = Vec::new();
+        for part in filters_part.split(',') {
+            let part = part.trim();
+            if let Some(eq_pos) = part.find('=') {
+                let key = part[..eq_pos].trim().to_string();
+                let value = part[eq_pos + 1..].trim().to_string();
+                if !key.is_empty() && !value.is_empty() {
+                    filters.push((key, value));
+                }
+            }
+        }
+
+        if filters.is_empty() {
+            None
+        } else {
+            Some(AwsFilters { filters })
+        }
+    }
+
+    /// Display string for the filters
+    pub fn display(&self) -> String {
+        let pairs: Vec<String> = self
+            .filters
+            .iter()
+            .map(|(k, v)| format!("{}={}", k, v))
+            .collect();
+        format!("Filters: {}", pairs.join(", "))
+    }
+}
+
 pub struct App {
     // AWS Clients
     pub clients: AwsClients,
@@ -71,6 +123,10 @@ pub struct App {
     pub mode: Mode,
     pub filter_text: String,
     pub filter_active: bool,
+
+    // AWS API filters state (unified filter system)
+    pub aws_filters: Option<AwsFilters>,
+    pub filters_autocomplete_shown: bool,
 
     // Hierarchical navigation
     pub parent_context: Option<ParentContext>,
@@ -124,8 +180,17 @@ pub struct App {
     // Custom endpoint URL (for LocalStack, etc.)
     pub endpoint_url: Option<String>,
 
-    // SSO login state
+    // SSO login state (IAM Identity Center)
     pub sso_state: Option<SsoLoginState>,
+
+    // Console login state (aws login)
+    pub console_login_state: Option<ConsoleLoginState>,
+
+    // Console login child process (not in ConsoleLoginState because Child is not Clone)
+    pub console_login_child: Option<std::process::Child>,
+
+    // Console login URL receiver (for capturing URL from subprocess stderr)
+    pub console_login_rx: Option<std::sync::mpsc::Receiver<crate::aws::console_login::LoginInfo>>,
 
     // Pagination state
     pub pagination: PaginationState,
@@ -198,15 +263,41 @@ pub enum SsoLoginState {
     Failed { error: String },
 }
 
+/// State for console login (aws login) dialog
+#[derive(Debug, Clone)]
+pub enum ConsoleLoginState {
+    /// Prompt to run aws login
+    Prompt {
+        profile: String,
+        login_session: String,
+    },
+    /// Waiting for browser auth (subprocess running)
+    WaitingForAuth {
+        profile: String,
+        login_session: String,
+        /// URL captured from subprocess output (displayed in dialog)
+        url: Option<String>,
+    },
+    /// Login succeeded - contains profile to switch to
+    Success { profile: String },
+    /// Login failed
+    Failed { profile: String, error: String },
+}
+
 /// Result of profile switch attempt
 #[derive(Debug, Clone)]
 pub enum ProfileSwitchResult {
     /// Profile switched successfully
     Success,
-    /// SSO login required for this profile
+    /// SSO login required for this profile (IAM Identity Center)
     SsoRequired {
         profile: String,
         sso_session: String,
+    },
+    /// Console login required for this profile (aws login)
+    ConsoleLoginRequired {
+        profile: String,
+        login_session: String,
     },
 }
 
@@ -265,6 +356,8 @@ impl App {
             mode: Mode::Normal,
             filter_text: String::new(),
             filter_active: false,
+            aws_filters: None,
+            filters_autocomplete_shown: false,
             parent_context: None,
             navigation_stack: Vec::new(),
             command_text: String::new(),
@@ -294,6 +387,9 @@ impl App {
             warning_message: None,
             endpoint_url,
             sso_state: None,
+            console_login_state: None,
+            console_login_child: None,
+            console_login_rx: None,
             pagination: PaginationState::default(),
             log_tail_state: None,
             ssm_connect_request: None,
@@ -435,18 +531,40 @@ impl App {
         self.pagination = PaginationState::default();
     }
 
-    /// Build AWS filters from parent context
+    /// Build AWS filters from parent context and AWS API filters
     /// For S3, this collects both bucket_names and prefix from navigation stack
     fn build_filters_from_context(&self) -> Vec<ResourceFilter> {
+        let mut filters = Vec::new();
+
+        // Add AWS API filters if present (unified filter system)
+        if let Some(ref aws_filters) = self.aws_filters {
+            for (key, value) in &aws_filters.filters {
+                // Special handling for "owner" - uses Owner.N param, not Filter
+                if key.to_lowercase() == "owner" {
+                    filters.push(ResourceFilter::new(
+                        &format!("owner:{}", value),
+                        vec![value.clone()],
+                    ));
+                } else if key.starts_with("tag:") {
+                    // Tag filters: tag:Key=Value -> Filter.N.Name=tag:Key, Filter.N.Value.1=Value
+                    filters.push(ResourceFilter::new(key, vec![value.clone()]));
+                } else {
+                    // Regular filters: key=value -> Filter.N.Name=key, Filter.N.Value.1=value
+                    filters.push(ResourceFilter::new(
+                        &format!("filter:{}", key),
+                        vec![value.clone()],
+                    ));
+                }
+            }
+        }
+
         let Some(parent) = &self.parent_context else {
-            return Vec::new();
+            return filters;
         };
 
         let Some(_resource) = self.current_resource() else {
-            return Vec::new();
+            return filters;
         };
-
-        let mut filters = Vec::new();
 
         // For S3 objects, we need to collect filters from entire navigation stack
         // to preserve bucket_names while adding prefix
@@ -516,7 +634,11 @@ impl App {
                     // Extract parent ID value
                     let parent_id = extract_json_value(&parent.item, &sub.parent_id_field);
                     if parent_id != "-" {
-                        return vec![ResourceFilter::new(&sub.filter_param, vec![parent_id])];
+                        return vec![ResourceFilter::with_type(
+                            &sub.filter_param,
+                            vec![parent_id],
+                            &sub.filter_type,
+                        )];
                     }
                 }
             }
@@ -589,14 +711,63 @@ impl App {
         }
     }
 
-    pub fn toggle_filter(&mut self) {
-        self.filter_active = !self.filter_active;
+    /// Start a new filter, clearing any existing AWS filters
+    /// Returns true if a refresh is needed (filters were cleared)
+    pub fn start_new_filter(&mut self) -> bool {
+        let needs_refresh = self.aws_filters.is_some();
+        self.filter_text.clear();
+        self.aws_filters = None;
+        self.filters_autocomplete_shown = false;
+        self.filter_active = true;
+        if needs_refresh {
+            self.reset_pagination();
+        }
+        needs_refresh
     }
 
     pub fn clear_filter(&mut self) {
         self.filter_text.clear();
         self.filter_active = false;
+        self.aws_filters = None;
+        self.filters_autocomplete_shown = false;
         self.apply_filter();
+    }
+
+    /// Check if the current resource supports filtering via AWS API
+    pub fn current_resource_supports_filters(&self) -> bool {
+        self.current_resource()
+            .map(|r| r.supports_filters())
+            .unwrap_or(false)
+    }
+
+    /// Get filter hint for current resource
+    pub fn current_resource_filters_hint(&self) -> Option<String> {
+        self.current_resource()
+            .and_then(|r| r.filters_hint().map(|s| s.to_string()))
+    }
+
+    /// Check if filter text should trigger filters autocomplete (just "F" or "Fi" or "Filters")
+    pub fn should_show_filters_autocomplete(&self) -> bool {
+        if !self.current_resource_supports_filters() {
+            return false;
+        }
+        let text = self.filter_text.trim().to_lowercase();
+        !text.is_empty() && "filters:".starts_with(&text) && !text.contains(':')
+    }
+
+    /// Clear AWS filters and refresh
+    pub async fn clear_aws_filters(&mut self) -> anyhow::Result<()> {
+        if self.aws_filters.is_some() {
+            self.aws_filters = None;
+            self.reset_pagination();
+            self.refresh_current().await?;
+        }
+        Ok(())
+    }
+
+    /// Get a display string for the current AWS filters
+    pub fn aws_filters_display(&self) -> Option<String> {
+        self.aws_filters.as_ref().map(|f| f.display())
     }
 
     // =========================================================================
@@ -979,6 +1150,14 @@ impl App {
         self.mode = Mode::SsoLogin;
     }
 
+    pub fn enter_console_login_mode(&mut self, profile: &str, login_session: &str) {
+        self.console_login_state = Some(ConsoleLoginState::Prompt {
+            profile: profile.to_string(),
+            login_session: login_session.to_string(),
+        });
+        self.mode = Mode::ConsoleLogin;
+    }
+
     /// Create a pending action from an ActionDef
     pub fn create_pending_action(
         &self,
@@ -1211,7 +1390,7 @@ impl App {
         Ok(())
     }
 
-    /// Switch profile with SSO check - returns SsoRequired if SSO login is needed
+    /// Switch profile with SSO/Console login check - returns login required if needed
     pub async fn switch_profile_with_sso_check(
         &mut self,
         profile: &str,
@@ -1244,10 +1423,18 @@ impl App {
                 profile,
                 sso_session,
             }),
+            ClientResult::ConsoleLoginRequired {
+                profile,
+                login_session,
+                ..
+            } => Ok(ProfileSwitchResult::ConsoleLoginRequired {
+                profile,
+                login_session,
+            }),
         }
     }
 
-    /// Select profile - returns true if SSO login is required
+    /// Select profile - returns true if login (SSO or Console) is required
     pub async fn select_profile(&mut self) -> Result<bool> {
         if let Some(profile) = self.available_profiles.get(self.profiles_selected) {
             let profile = profile.clone();
@@ -1261,8 +1448,16 @@ impl App {
                     profile,
                     sso_session,
                 } => {
-                    // Enter SSO login mode
+                    // Enter SSO login mode (IAM Identity Center)
                     self.enter_sso_login_mode(&profile, &sso_session);
+                    Ok(true)
+                }
+                ProfileSwitchResult::ConsoleLoginRequired {
+                    profile,
+                    login_session,
+                } => {
+                    // Enter console login mode (aws login)
+                    self.enter_console_login_mode(&profile, &login_session);
                     Ok(true)
                 }
             }
@@ -1330,17 +1525,40 @@ impl App {
             }
             _ => {
                 // Check if it's a known resource
-                if get_resource(cmd).is_some() {
-                    // Check if it's a sub-resource of current
-                    if let Some(resource) = self.current_resource() {
-                        let is_sub = resource.sub_resources.iter().any(|s| s.resource_key == cmd);
-                        if is_sub && self.selected_item().is_some() {
-                            self.navigate_to_sub_resource(cmd).await?;
+                if let Some(target_resource) = get_resource(cmd) {
+                    // Check if the target resource requires a parent
+                    if target_resource.requires_parent {
+                        // Check if it's a sub-resource of current and we have a selected item
+                        if let Some(resource) = self.current_resource() {
+                            let is_sub =
+                                resource.sub_resources.iter().any(|s| s.resource_key == cmd);
+                            if is_sub && self.selected_item().is_some() {
+                                self.navigate_to_sub_resource(cmd).await?;
+                            } else {
+                                self.error_message = Some(format!(
+                                    "'{}' requires a parent resource. Navigate to the parent first and select an item.",
+                                    target_resource.display_name
+                                ));
+                            }
+                        } else {
+                            self.error_message = Some(format!(
+                                "'{}' requires a parent resource. Navigate to the parent first and select an item.",
+                                target_resource.display_name
+                            ));
+                        }
+                    } else {
+                        // Normal resource - check if it's a sub-resource of current
+                        if let Some(resource) = self.current_resource() {
+                            let is_sub =
+                                resource.sub_resources.iter().any(|s| s.resource_key == cmd);
+                            if is_sub && self.selected_item().is_some() {
+                                self.navigate_to_sub_resource(cmd).await?;
+                            } else {
+                                self.navigate_to_resource(cmd).await?;
+                            }
                         } else {
                             self.navigate_to_resource(cmd).await?;
                         }
-                    } else {
-                        self.navigate_to_resource(cmd).await?;
                     }
                 } else {
                     self.error_message = Some(format!("Unknown command: {}", cmd));
@@ -1362,9 +1580,15 @@ impl App {
             return Ok(());
         };
 
-        // Extract log group and stream names
-        let log_group = extract_json_value(&item, "logGroupName");
+        // Extract log stream name from selected item
         let log_stream = extract_json_value(&item, "logStreamName");
+
+        // Extract log group name from parent context (log group)
+        let log_group = self
+            .parent_context
+            .as_ref()
+            .map(|ctx| extract_json_value(&ctx.item, "logGroupName"))
+            .unwrap_or_else(|| "-".to_string());
 
         if log_group == "-" || log_stream == "-" {
             self.error_message = Some("Could not get log group/stream name".to_string());
@@ -1571,5 +1795,82 @@ impl App {
     /// Take the SSM connect request (clears it)
     pub fn take_ssm_connect_request(&mut self) -> Option<SsmConnectRequest> {
         self.ssm_connect_request.take()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_aws_filters_valid() {
+        let result = AwsFilters::parse("Filters: owner=amazon, architecture=arm64");
+        assert!(result.is_some());
+        let filters = result.unwrap();
+        assert_eq!(filters.filters.len(), 2);
+        assert_eq!(
+            filters.filters[0],
+            ("owner".to_string(), "amazon".to_string())
+        );
+        assert_eq!(
+            filters.filters[1],
+            ("architecture".to_string(), "arm64".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_aws_filters_lowercase() {
+        let result = AwsFilters::parse("filters: state=available");
+        assert!(result.is_some());
+        let filters = result.unwrap();
+        assert_eq!(filters.filters.len(), 1);
+        assert_eq!(
+            filters.filters[0],
+            ("state".to_string(), "available".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_aws_filters_with_tag() {
+        let result = AwsFilters::parse("Filters: tag:Environment=prod");
+        assert!(result.is_some());
+        let filters = result.unwrap();
+        assert_eq!(filters.filters.len(), 1);
+        assert_eq!(
+            filters.filters[0],
+            ("tag:Environment".to_string(), "prod".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_aws_filters_invalid_no_value() {
+        let result = AwsFilters::parse("Filters: owner=");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_parse_aws_filters_invalid_no_key() {
+        let result = AwsFilters::parse("Filters: =amazon");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_parse_aws_filters_not_filters_prefix() {
+        let result = AwsFilters::parse("owner=amazon");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_aws_filters_display() {
+        let filters = AwsFilters {
+            filters: vec![
+                ("owner".to_string(), "amazon".to_string()),
+                ("architecture".to_string(), "arm64".to_string()),
+            ],
+        };
+        assert_eq!(
+            filters.display(),
+            "Filters: owner=amazon, architecture=arm64"
+        );
     }
 }
