@@ -15,7 +15,9 @@
         { "header": "TYPE", "json_path": "Config.PrivateZone", "width": 12 },
         { "header": "RECORD COUNT", "json_path": "ResourceRecordSetCount", "width": 15 }
       ],
-      "sub_resources": [],
+      "sub_resources": [
+        { "shortcut": "r", "display_name": "Records", "resource_key": "route53-records", "parent_id_field": "Id", "filter_param": "hosted_zone_id" }
+      ],
       "actions": [],
       "api_config": {
         "protocol": "rest-xml",
@@ -28,6 +30,38 @@
         "Name": { "source": "/Name", "default": "-" },
         "ResourceRecordSetCount": { "source": "/ResourceRecordSetCount", "default": "0" },
         "Config.PrivateZone": { "source": "/Config/PrivateZone", "transform": "private_zone_to_type" }
+      }
+    },
+    "route53-records": {
+      "display_name": "Route53 Records",
+      "service": "route53",
+      "sdk_method": "list_resource_record_sets",
+      "sdk_method_params": {},
+      "response_path": "resource_record_sets",
+      "id_field": "RecordId",
+      "name_field": "Name",
+      "is_global": true,
+      "requires_parent": true,
+      "columns": [
+        { "header": "NAME", "json_path": "Name", "width": 50 },
+        { "header": "TYPE", "json_path": "Type", "width": 10 },
+        { "header": "TTL", "json_path": "TTL", "width": 8 },
+        { "header": "VALUE", "json_path": "Value", "width": 60 }
+      ],
+      "sub_resources": [],
+      "actions": [],
+      "api_config": {
+        "protocol": "rest-xml",
+        "method": "GET",
+        "path": "/2013-04-01{hosted_zone_id}/rrset",
+        "response_root": "/ListResourceRecordSetsResponse/ResourceRecordSets/ResourceRecordSet"
+      },
+      "field_mappings": {
+        "RecordId": { "source": "/", "transform": "route53_record_id" },
+        "Name": { "source": "/Name", "default": "-" },
+        "Type": { "source": "/Type", "default": "-" },
+        "TTL": { "source": "/TTL", "default": "-" },
+        "Value": { "source": "/", "transform": "route53_record_value" }
       }
     }
   }
