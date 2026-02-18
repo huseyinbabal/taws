@@ -78,15 +78,9 @@ fn apply_transform(value: &Value, transform: &str) -> Value {
 /// This creates a unique identifier since multiple records can have the same name with different types
 /// Input: {"Name": "example.com", "Type": "A"} -> "example.com#A"
 fn transform_route53_record_id(value: &Value) -> Value {
-    let name = value
-        .get("Name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("-");
-    let record_type = value
-        .get("Type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("-");
-    
+    let name = value.get("Name").and_then(|v| v.as_str()).unwrap_or("-");
+    let record_type = value.get("Type").and_then(|v| v.as_str()).unwrap_or("-");
+
     Value::String(format!("{}#{}", name, record_type))
 }
 
@@ -458,9 +452,18 @@ mod tests {
         let aaaa_record = json!({"Name": "example.com.", "Type": "AAAA"});
         let mx_record = json!({"Name": "example.com.", "Type": "MX"});
 
-        assert_eq!(transform_route53_record_id(&a_record), json!("example.com.#A"));
-        assert_eq!(transform_route53_record_id(&aaaa_record), json!("example.com.#AAAA"));
-        assert_eq!(transform_route53_record_id(&mx_record), json!("example.com.#MX"));
+        assert_eq!(
+            transform_route53_record_id(&a_record),
+            json!("example.com.#A")
+        );
+        assert_eq!(
+            transform_route53_record_id(&aaaa_record),
+            json!("example.com.#AAAA")
+        );
+        assert_eq!(
+            transform_route53_record_id(&mx_record),
+            json!("example.com.#MX")
+        );
     }
 
     #[test]
