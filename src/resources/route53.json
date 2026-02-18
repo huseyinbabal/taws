@@ -38,7 +38,7 @@
       "sdk_method": "list_resource_record_sets",
       "sdk_method_params": {},
       "response_path": "resource_record_sets",
-      "id_field": "Name",
+      "id_field": "RecordId",
       "name_field": "Name",
       "is_global": true,
       "requires_parent": true,
@@ -57,6 +57,7 @@
         "response_root": "/ListResourceRecordSetsResponse/ResourceRecordSets/ResourceRecordSet"
       },
       "field_mappings": {
+        "RecordId": { "source": "/", "transform": "route53_record_id" },
         "Name": { "source": "/Name", "default": "-" },
         "Type": { "source": "/Type", "default": "-" },
         "TTL": { "source": "/TTL", "default": "-" },

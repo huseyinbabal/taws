@@ -69,8 +69,25 @@ fn apply_transform(value: &Value, transform: &str) -> Value {
         "first_item" => transform_first_item(value),
         "private_zone_to_type" => transform_private_zone_to_type(value),
         "route53_record_value" => transform_route53_record_value(value),
+        "route53_record_id" => transform_route53_record_id(value),
         _ => value.clone(),
     }
+}
+
+/// Transform Route53 record to unique ID (Name#Type)
+/// This creates a unique identifier since multiple records can have the same name with different types
+/// Input: {"Name": "example.com", "Type": "A"} -> "example.com#A"
+fn transform_route53_record_id(value: &Value) -> Value {
+    let name = value
+        .get("Name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("-");
+    let record_type = value
+        .get("Type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("-");
+    
+    Value::String(format!("{}#{}", name, record_type))
 }
 
 /// Transform Route53 PrivateZone boolean to "Public"/"Private"
@@ -358,5 +375,99 @@ mod tests {
         let response = build_response(items, "instances", Some("token123".to_string()));
         assert_eq!(response["instances"].as_array().unwrap().len(), 2);
         assert_eq!(response["_next_token"], "token123");
+    }
+
+    #[test]
+    fn test_transform_route53_record_value_with_single_resource_record() {
+        let record = json!({
+            "ResourceRecords": {
+                "ResourceRecord": {
+                    "Value": "192.0.2.1"
+                }
+            }
+        });
+
+        let result = transform_route53_record_value(&record);
+        assert_eq!(result, json!("192.0.2.1"));
+    }
+
+    #[test]
+    fn test_transform_route53_record_value_with_multiple_resource_records() {
+        let record = json!({
+            "ResourceRecords": {
+                "ResourceRecord": [
+                    {"Value": "192.0.2.1"},
+                    {"Value": "192.0.2.2"},
+                    {"Value": "192.0.2.3"}
+                ]
+            }
+        });
+
+        let result = transform_route53_record_value(&record);
+        assert_eq!(result, json!("192.0.2.1, 192.0.2.2, 192.0.2.3"));
+    }
+
+    #[test]
+    fn test_transform_route53_record_value_with_alias_target() {
+        let record = json!({
+            "AliasTarget": {
+                "DNSName": "elb-123.us-east-1.elb.amazonaws.com",
+                "HostedZoneId": "Z35SXDOTRQ7X7K",
+                "EvaluateTargetHealth": "false"
+            }
+        });
+
+        let result = transform_route53_record_value(&record);
+        assert_eq!(result, json!("elb-123.us-east-1.elb.amazonaws.com"));
+    }
+
+    #[test]
+    fn test_transform_route53_record_value_with_empty_records() {
+        let record = json!({
+            "ResourceRecords": {
+                "ResourceRecord": []
+            }
+        });
+
+        let result = transform_route53_record_value(&record);
+        assert_eq!(result, json!("-"));
+    }
+
+    #[test]
+    fn test_transform_route53_record_value_with_no_value() {
+        let record = json!({});
+
+        let result = transform_route53_record_value(&record);
+        assert_eq!(result, json!("-"));
+    }
+
+    #[test]
+    fn test_transform_route53_record_id() {
+        let record = json!({
+            "Name": "example.com.",
+            "Type": "A"
+        });
+
+        let result = transform_route53_record_id(&record);
+        assert_eq!(result, json!("example.com.#A"));
+    }
+
+    #[test]
+    fn test_transform_route53_record_id_with_different_types() {
+        let a_record = json!({"Name": "example.com.", "Type": "A"});
+        let aaaa_record = json!({"Name": "example.com.", "Type": "AAAA"});
+        let mx_record = json!({"Name": "example.com.", "Type": "MX"});
+
+        assert_eq!(transform_route53_record_id(&a_record), json!("example.com.#A"));
+        assert_eq!(transform_route53_record_id(&aaaa_record), json!("example.com.#AAAA"));
+        assert_eq!(transform_route53_record_id(&mx_record), json!("example.com.#MX"));
+    }
+
+    #[test]
+    fn test_transform_route53_record_id_with_missing_fields() {
+        let record = json!({});
+
+        let result = transform_route53_record_id(&record);
+        assert_eq!(result, json!("-#-"));
     }
 }
