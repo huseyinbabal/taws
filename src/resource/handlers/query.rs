@@ -206,12 +206,9 @@ impl ProtocolHandler for QueryProtocolHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn test_parse_ec2_response() {
-        let handler = QueryProtocolHandler;
-
         // Simulated EC2 DescribeInstances XML-to-JSON response
         let response = r#"
         {
