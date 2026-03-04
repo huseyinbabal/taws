@@ -136,12 +136,24 @@ pub async fn invoke_sdk(
     match (service, method) {
         // S3 list_objects_v2 - requires bucket region resolution and complex folder handling
         ("s3", "list_objects_v2") => {
+            tracing::debug!("invoke_sdk s3.list_objects_v2 params: {:#?}", params);
             let bucket = params
                 .get("bucket_names")
-                .and_then(|v| v.as_array())
-                .and_then(|arr| arr.first())
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow!("Bucket name required"))?;
+                .and_then(|v| {
+                    // Handle both String (single value) and Array (multiple values)
+                    v.as_str()
+                        .map(|s| s.to_string())
+                        .or_else(|| {
+                            v.as_array()
+                                .and_then(|arr| arr.first())
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string())
+                        })
+                })
+                .ok_or_else(|| {
+                    tracing::error!("Bucket name required - params: {:#?}", params);
+                    anyhow!("Bucket name required")
+                })?;
 
             let prefix = params
                 .get("prefix")
@@ -159,7 +171,7 @@ pub async fn invoke_sdk(
                 })
                 .unwrap_or_default();
 
-            let bucket_region = clients.http.get_bucket_region(bucket).await?;
+            let bucket_region = clients.http.get_bucket_region(&bucket).await?;
             debug!("Bucket {} is in region {}", bucket, bucket_region);
 
             let path = if prefix.is_empty() {
@@ -173,7 +185,7 @@ pub async fn invoke_sdk(
 
             let xml = clients
                 .http
-                .rest_xml_request_s3_bucket("GET", bucket, &path, None, &bucket_region)
+                .rest_xml_request_s3_bucket("GET", &bucket, &path, None, &bucket_region)
                 .await?;
             let json = xml_to_json(&xml)?;
 
