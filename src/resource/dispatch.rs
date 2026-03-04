@@ -138,10 +138,21 @@ pub async fn invoke_sdk(
         ("s3", "list_objects_v2") => {
             let bucket = params
                 .get("bucket_names")
-                .and_then(|v| v.as_array())
-                .and_then(|arr| arr.first())
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow!("Bucket name required"))?;
+                .and_then(|v| {
+                    // Handle both String (single value) and Array (multiple values)
+                    v.as_str()
+                        .map(|s| s.to_string())
+                        .or_else(|| {
+                            v.as_array()
+                                .and_then(|arr| arr.first())
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string())
+                        })
+                })
+                .ok_or_else(|| {
+                    tracing::error!("Bucket name required - params: {:#?}", params);
+                    anyhow!("Bucket name required")
+                })?;
 
             let prefix = params
                 .get("prefix")
@@ -159,7 +170,7 @@ pub async fn invoke_sdk(
                 })
                 .unwrap_or_default();
 
-            let bucket_region = clients.http.get_bucket_region(bucket).await?;
+            let bucket_region = clients.http.get_bucket_region(&bucket).await?;
             debug!("Bucket {} is in region {}", bucket, bucket_region);
 
             let path = if prefix.is_empty() {
@@ -173,7 +184,7 @@ pub async fn invoke_sdk(
 
             let xml = clients
                 .http
-                .rest_xml_request_s3_bucket("GET", bucket, &path, None, &bucket_region)
+                .rest_xml_request_s3_bucket("GET", &bucket, &path, None, &bucket_region)
                 .await?;
             let json = xml_to_json(&xml)?;
 
@@ -861,5 +872,25 @@ mod tests {
     fn test_iam_users_has_api_config() {
         let resource = get_resource("iam-users").unwrap();
         assert!(resource.has_api_config());
+    }
+
+    #[test]
+    fn test_extract_param_variants() {
+        use serde_json::json;
+
+        // Test single string value
+        let params_str = json!({ "bucket": "my-bucket" });
+        assert_eq!(extract_param(&params_str, "bucket"), "my-bucket");
+
+        // Test array with single string
+        let params_single_arr = json!({ "bucket": ["only-bucket"] });
+        assert_eq!(extract_param(&params_single_arr, "bucket"), "only-bucket");
+
+        // Test array of strings (takes first)
+        let params_arr = json!({ "bucket": ["first-bucket", "second-bucket"] });
+        assert_eq!(extract_param(&params_arr, "bucket"), "first-bucket");
+
+        // Test missing key
+        assert_eq!(extract_param(&params_str, "nonexistent"), "");
     }
 }
