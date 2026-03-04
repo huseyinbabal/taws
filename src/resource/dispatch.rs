@@ -874,4 +874,24 @@ mod tests {
         let resource = get_resource("iam-users").unwrap();
         assert!(resource.has_api_config());
     }
+
+    #[test]
+    fn test_extract_param_variants() {
+        use serde_json::json;
+
+        // Test single string value
+        let params_str = json!({ "bucket": "my-bucket" });
+        assert_eq!(extract_param(&params_str, "bucket"), "my-bucket");
+
+        // Test array with single string
+        let params_single_arr = json!({ "bucket": ["only-bucket"] });
+        assert_eq!(extract_param(&params_single_arr, "bucket"), "only-bucket");
+
+        // Test array of strings (takes first)
+        let params_arr = json!({ "bucket": ["first-bucket", "second-bucket"] });
+        assert_eq!(extract_param(&params_arr, "bucket"), "first-bucket");
+
+        // Test missing key
+        assert_eq!(extract_param(&params_str, "nonexistent"), "");
+    }
 }
