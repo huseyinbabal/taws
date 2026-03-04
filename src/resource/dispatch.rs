@@ -136,7 +136,6 @@ pub async fn invoke_sdk(
     match (service, method) {
         // S3 list_objects_v2 - requires bucket region resolution and complex folder handling
         ("s3", "list_objects_v2") => {
-            tracing::debug!("invoke_sdk s3.list_objects_v2 params: {:#?}", params);
             let bucket = params
                 .get("bucket_names")
                 .and_then(|v| {
