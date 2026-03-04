@@ -450,7 +450,10 @@ impl App {
         }
 
         self.loading = true;
-        self.error_message = None;
+        let had_error = self.error_message.is_some();
+        if !had_error {
+            self.error_message = None;
+        }
 
         // Build filters from parent context
         let filters = self.build_filters_from_context();
