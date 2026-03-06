@@ -136,7 +136,6 @@ impl ProtocolHandler for RestJsonProtocolHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn test_parse_lambda_functions_response() {
@@ -181,5 +180,98 @@ mod tests {
 
         assert_eq!(items.len(), 2);
         assert_eq!(items[0], "cluster1");
+    }
+
+    #[test]
+    fn test_parse_redshift_clusters_response() {
+        let response = r#"{
+            "clusters": [
+                {
+                    "ClusterIdentifier": "my-cluster",
+                    "ClusterStatus": "available",
+                    "NodeType": "dc2.large",
+                    "NumberOfNodes": 2,
+                    "DBName": "mydb",
+                    "ClusterVersion": "1.0"
+                },
+                {
+                    "ClusterIdentifier": "my-cluster-2",
+                    "ClusterStatus": "paused",
+                    "NodeType": "ra3.xlplus",
+                    "NumberOfNodes": 4,
+                    "DBName": "devdb",
+                    "ClusterVersion": "1.0"
+                }
+            ],
+            "NextToken": "next123"
+        }"#;
+
+        let config = ApiConfig {
+            response_root: Some("/clusters".to_string()),
+            pagination: Some(crate::resource::protocol::PaginationConfig {
+                output_token: Some("/NextToken".to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let handler = RestJsonProtocolHandler;
+        let (items, next_token) = handler.parse_items(response, &config).unwrap();
+
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["ClusterIdentifier"], "my-cluster");
+        assert_eq!(items[0]["ClusterStatus"], "available");
+        assert_eq!(items[0]["NodeType"], "dc2.large");
+        assert_eq!(items[0]["NumberOfNodes"], 2);
+        assert_eq!(items[0]["DBName"], "mydb");
+        assert_eq!(items[0]["ClusterVersion"], "1.0");
+        assert_eq!(items[1]["ClusterIdentifier"], "my-cluster-2");
+        assert_eq!(items[1]["ClusterStatus"], "paused");
+        assert_eq!(next_token, Some("next123".to_string()));
+    }
+
+    #[test]
+    fn test_parse_redshift_snapshots_response() {
+        let response = r#"{
+            "snapshots": [
+                {
+                    "SnapshotIdentifier": "my-cluster-snapshot-1",
+                    "Status": "available",
+                    "SnapshotType": "automated",
+                    "ClusterIdentifier": "my-cluster",
+                    "SnapshotCreateTime": "2024-01-01T00:00:00Z"
+                },
+                {
+                    "SnapshotIdentifier": "my-cluster-snapshot-2",
+                    "Status": "available",
+                    "SnapshotType": "manual",
+                    "ClusterIdentifier": "my-cluster",
+                    "SnapshotCreateTime": "2024-01-02T00:00:00Z"
+                }
+            ],
+            "NextToken": "next456"
+        }"#;
+
+        let config = ApiConfig {
+            response_root: Some("/snapshots".to_string()),
+            pagination: Some(crate::resource::protocol::PaginationConfig {
+                output_token: Some("/NextToken".to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let handler = RestJsonProtocolHandler;
+        let (items, next_token) = handler.parse_items(response, &config).unwrap();
+
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["SnapshotIdentifier"], "my-cluster-snapshot-1");
+        assert_eq!(items[0]["Status"], "available");
+        assert_eq!(items[0]["SnapshotType"], "automated");
+        assert_eq!(items[0]["ClusterIdentifier"], "my-cluster");
+        assert_eq!(items[0]["SnapshotCreateTime"], "2024-01-01T00:00:00Z");
+        assert_eq!(items[1]["SnapshotIdentifier"], "my-cluster-snapshot-2");
+        assert_eq!(items[1]["SnapshotType"], "manual");
+        assert_eq!(next_token, Some("next456".to_string()));
     }
 }

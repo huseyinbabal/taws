@@ -36,6 +36,7 @@ const RESOURCE_FILES: &[&str] = &[
     include_str!("../resources/kms.json"),
     include_str!("../resources/lambda.json"),
     include_str!("../resources/rds.json"),
+    include_str!("../resources/redshift.json"),
     include_str!("../resources/route53.json"),
     include_str!("../resources/s3.json"),
     include_str!("../resources/secretsmanager.json"),
