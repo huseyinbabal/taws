@@ -65,7 +65,7 @@
           "action": "DeleteCluster",
           "id_param": "ClusterIdentifier",
           "static_params": {
-            "SkipFinalClusterSnapshot": "true"
+            "SkipFinalClusterSnapshot": "false"
           }
         }
       },
