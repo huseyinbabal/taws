@@ -65,7 +65,8 @@
           "action": "DeleteCluster",
           "id_param": "ClusterIdentifier",
           "static_params": {
-            "SkipFinalClusterSnapshot": "false"
+            "SkipFinalClusterSnapshot": "false",
+            "FinalClusterSnapshotIdentifier": "taws-${resource_id}-${timestamp}"
           }
         }
       },

@@ -71,6 +71,12 @@ fn format_epoch_millis(millis: i64) -> String {
         .unwrap_or_else(|| "-".to_string())
 }
 
+fn resolve_static_param_template(template: &str, resource_id: &str, timestamp: &str) -> String {
+    template
+        .replace("{resource_id}", resource_id)
+        .replace("{timestamp}", timestamp)
+}
+
 /// Format epoch milliseconds to human-readable date string (public for log tail UI)
 pub fn format_log_timestamp(millis: i64) -> String {
     format_epoch_millis(millis)
@@ -388,9 +394,13 @@ async fn invoke_action(
             }
 
             // Add static parameters
+            // Resolve template variables in static params: {resource_id}, {timestamp}
+            let current_timestamp = chrono::Utc::now().format("%Y%m%dT%H%M%S").to_string();
+
             for (key, value) in &action_config.static_params {
-                if let Some(s) = value.as_str() {
-                    params_owned.push((key.clone(), s.to_string()));
+                if let Some(template) = value.as_str() {
+                    let resolved = resolve_static_param_template(template, resource_id, &current_timestamp);
+                    params_owned.push((key.clone(), resolved.to_string()));
                 }
             }
 
@@ -861,5 +871,21 @@ mod tests {
     fn test_iam_users_has_api_config() {
         let resource = get_resource("iam-users").unwrap();
         assert!(resource.has_api_config());
+    }
+
+    #[test]
+    fn test_resolve_static_param_template_replaces_all_placeholders() {
+        let out = resolve_static_param_template(
+            "taws-{resource_id}-{timestamp}",
+            "test-cluster",
+            "20260309T143000"
+        );
+        assert_eq!(out, "taws-test-cluster-20260309T143000")
+    }
+    
+    #[test]
+    fn test_resolve_static_param_template_keeps_plain_tex() {
+        let out = resolve_static_param_template("fixed-value", "x", "y");
+        assert_eq!(out, "fixed-value");
     }
 }
