@@ -210,6 +210,14 @@ pub struct ResourceDef {
     /// Used for sub-resources like Log Streams that need a Log Group
     #[serde(default)]
     pub requires_parent: bool,
+
+    /// Optional field to sort by (defaults to name_field if not set)
+    #[serde(default)]
+    pub sort_field: Option<String>,
+
+    /// Sort order: "asc" (default) or "desc"
+    #[serde(default)]
+    pub sort_order: Option<String>,
 }
 
 impl ResourceDef {
