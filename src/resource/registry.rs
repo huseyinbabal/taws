@@ -620,4 +620,63 @@ mod tests {
             "get_secret_value should use 'x' shortcut"
         );
     }
+
+    #[test]
+    fn test_ecr_images_sorted_by_pushed_at_desc() {
+        let resource = get_resource("ecr-images");
+        assert!(resource.is_some(), "ECR images resource should exist");
+
+        let resource = resource.unwrap();
+        assert_eq!(resource.display_name, "Images");
+        assert_eq!(resource.service, "ecr");
+        assert!(
+            resource.requires_parent,
+            "ECR images should require a parent"
+        );
+
+        // Verify sort configuration
+        assert_eq!(
+            resource.sort_field.as_deref(),
+            Some("PushedAt"),
+            "ECR images should sort by PushedAt"
+        );
+        assert_eq!(
+            resource.sort_order.as_deref(),
+            Some("desc"),
+            "ECR images should sort descending (newest first)"
+        );
+
+        // Verify PushedAt column exists
+        let pushed_at_col = resource.columns.iter().find(|c| c.json_path == "PushedAt");
+        assert!(
+            pushed_at_col.is_some(),
+            "ECR images should have a PushedAt column"
+        );
+    }
+
+    #[test]
+    fn test_ecr_repositories_resource_exists() {
+        let resource = get_resource("ecr-repositories");
+        assert!(resource.is_some(), "ECR repositories resource should exist");
+
+        let resource = resource.unwrap();
+        assert_eq!(resource.display_name, "ECR Repositories");
+        assert_eq!(resource.service, "ecr");
+
+        // Repositories should not have custom sort (defaults to name_field)
+        assert!(
+            resource.sort_field.is_none(),
+            "ECR repositories should use default sort"
+        );
+
+        // Should have images sub-resource
+        let images_sub = resource
+            .sub_resources
+            .iter()
+            .find(|s| s.resource_key == "ecr-images");
+        assert!(
+            images_sub.is_some(),
+            "ECR repositories should have images sub-resource"
+        );
+    }
 }
