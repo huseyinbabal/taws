@@ -11,5 +11,5 @@ pub mod protocol;
 pub use dispatch::{
     describe_resource, execute_action, execute_action_with_result, format_log_timestamp, invoke_sdk,
 };
-pub use fetcher::{extract_json_value, fetch_resources, fetch_resources_paginated, ResourceFilter};
+pub use fetcher::{extract_json_value, fetch_resources_paginated, ResourceFilter};
 pub use registry::*;
