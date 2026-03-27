@@ -455,8 +455,8 @@ where
 
     let (instances, initial_error) = {
         // Use the new JSON-driven resource system
-        match resource::fetch_resources("ec2-instances", &clients, &[]).await {
-            Ok(items) => (items, None),
+        match resource::fetch_resources_paginated("ec2-instances", &clients, &[], None).await {
+            Ok(result) => (result.items, None),
             Err(e) => {
                 let error_msg = aws::client::format_aws_error(&e);
                 (Vec::new(), Some(error_msg))
@@ -675,10 +675,15 @@ where
 
                                 // Fetch initial resources
                                 let (instances, initial_error) = {
-                                    match resource::fetch_resources("ec2-instances", &clients, &[])
-                                        .await
+                                    match resource::fetch_resources_paginated(
+                                        "ec2-instances",
+                                        &clients,
+                                        &[],
+                                        None,
+                                    )
+                                    .await
                                     {
-                                        Ok(items) => (items, None),
+                                        Ok(result) => (result.items, None),
                                         Err(e) => {
                                             let error_msg = aws::client::format_aws_error(&e);
                                             (Vec::new(), Some(error_msg))
@@ -1127,10 +1132,15 @@ where
 
                                 // Fetch initial resources
                                 let (instances, initial_error) = {
-                                    match resource::fetch_resources("ec2-instances", &clients, &[])
-                                        .await
+                                    match resource::fetch_resources_paginated(
+                                        "ec2-instances",
+                                        &clients,
+                                        &[],
+                                        None,
+                                    )
+                                    .await
                                     {
-                                        Ok(items) => (items, None),
+                                        Ok(result) => (result.items, None),
                                         Err(e) => {
                                             let error_msg = aws::client::format_aws_error(&e);
                                             (Vec::new(), Some(error_msg))
