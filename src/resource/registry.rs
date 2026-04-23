@@ -613,4 +613,33 @@ mod tests {
             "get_secret_value should use 'x' shortcut"
         );
     }
+
+    #[test]
+    fn test_ssm_parameters_has_view_value_action() {
+        let resource = get_resource("ssm-parameters").unwrap();
+        assert!(
+            !resource.actions.is_empty(),
+            "SSM Parameters should have actions"
+        );
+
+        let view_action = resource
+            .actions
+            .iter()
+            .find(|a| a.sdk_method == "get_parameter");
+        assert!(
+            view_action.is_some(),
+            "SSM Parameters should have get_parameter action"
+        );
+
+        let view_action = view_action.unwrap();
+        assert!(
+            view_action.show_result,
+            "get_parameter action should have show_result=true"
+        );
+        assert_eq!(
+            view_action.shortcut.as_deref(),
+            Some("x"),
+            "get_parameter should use 'x' shortcut"
+        );
+    }
 }
