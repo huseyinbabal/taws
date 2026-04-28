@@ -224,7 +224,13 @@
       "api_config": {
         "protocol": "query",
         "action": "DescribeInstances",
-        "response_root": "/DescribeInstancesResponse/reservationSet/item/instancesSet/item"
+        "response_root": "/DescribeInstancesResponse/reservationSet/item/instancesSet/item",
+        "pagination": {
+          "input_token": "NextToken",
+          "output_token": "/DescribeInstancesResponse/nextToken",
+          "max_results_param": "MaxResults",
+          "max_results": 100
+        }
       },
       "field_mappings": {
         "InstanceId": { "source": "/instanceId", "default": "-" },

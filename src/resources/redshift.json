@@ -1,0 +1,125 @@
+{
+  "resources": {
+    "redshift-clusters": {
+      "display_name": "Redshift Clusters",
+      "service": "redshift",
+      "sdk_method": "describe_clusters",
+      "sdk_method_params": {},
+      "response_path": "clusters",
+      "id_field": "ClusterIdentifier",
+      "name_field": "ClusterIdentifier",
+      "is_global": false,
+      "columns": [
+        { "header": "CLUSTER IDENTIFIER", "json_path": "ClusterIdentifier", "width": 25 },
+        { "header": "STATUS", "json_path": "ClusterStatus", "width": 15, "color_map": "state" },
+        { "header": "NODE TYPE", "json_path": "NodeType", "width": 15 },
+        { "header": "NODES", "json_path": "NumberOfNodes", "width": 8 },
+        { "header": "DB NAME", "json_path": "DBName", "width": 15 },
+        { "header": "VERSION", "json_path": "ClusterVersion", "width": 10 }
+      ],
+      "sub_resources": [
+        { "shortcut": "n", "display_name": "Snapshots", "resource_key": "redshift-snapshots", "parent_id_field": "ClusterIdentifier", "filter_param": "cluster_identifier" }
+      ],
+      "actions": [
+        { "key": "s", "display_name": "Resume", "shortcut": "s", "sdk_method": "resume_cluster", "confirm": { "message": "Resume Redshift cluster", "default_yes": false } },
+        { "key": "S", "display_name": "Pause", "shortcut": "S", "sdk_method": "pause_cluster", "confirm": { "message": "Pause Redshift cluster", "default_yes": false } },
+        { "key": "r", "display_name": "Reboot", "shortcut": "r", "sdk_method": "reboot_cluster", "confirm": { "message": "Reboot Redshift cluster", "default_yes": false } },
+        { "key": "ctrl+d", "display_name": "Delete", "shortcut": "ctrl+d", "sdk_method": "delete_cluster", "confirm": { "message": "Delete Redshift cluster", "default_yes": false, "destructive": true } }
+      ],
+      "api_config": {
+        "protocol": "query",
+        "action": "DescribeClusters",
+        "response_root": "/DescribeClustersResponse/DescribeClustersResult/Clusters/Cluster"
+      },
+      "field_mappings": {
+        "ClusterIdentifier": { "source": "/ClusterIdentifier", "default": "-" },
+        "ClusterStatus": { "source": "/ClusterStatus", "default": "-" },
+        "NodeType": { "source": "/NodeType", "default": "-" },
+        "NumberOfNodes": { "source": "/NumberOfNodes", "default": "0" },
+        "DBName": { "source": "/DBName", "default": "-" },
+        "ClusterVersion": { "source": "/ClusterVersion", "default": "-" },
+        "Endpoint": { "source": "/Endpoint/Address", "default": "-" }
+      },
+      "action_configs": {
+        "resume_cluster": {
+          "action_id": "resume_cluster",
+          "protocol": "query",
+          "action": "ResumeCluster",
+          "id_param": "ClusterIdentifier"
+        },
+        "pause_cluster": {
+          "action_id": "pause_cluster",
+          "protocol": "query",
+          "action": "PauseCluster",
+          "id_param": "ClusterIdentifier"
+        },
+        "reboot_cluster": {
+          "action_id": "reboot_cluster",
+          "protocol": "query",
+          "action": "RebootCluster",
+          "id_param": "ClusterIdentifier"
+        },
+        "delete_cluster": {
+          "action_id": "delete_cluster",
+          "protocol": "query",
+          "action": "DeleteCluster",
+          "id_param": "ClusterIdentifier",
+          "static_params": {
+            "SkipFinalClusterSnapshot": "false",
+            "FinalClusterSnapshotIdentifier": "taws-{resource_id}-{timestamp}"
+          }
+        }
+      },
+      "describe_config": {
+        "protocol": "query",
+        "action": "DescribeClusters",
+        "id_param": "ClusterIdentifier",
+        "response_path": "/DescribeClustersResponse/DescribeClustersResult/Clusters/Cluster"
+      }
+    },
+    "redshift-snapshots": {
+      "display_name": "Redshift Snapshots",
+      "service": "redshift",
+      "sdk_method": "describe_cluster_snapshots",
+      "sdk_method_params": {},
+      "response_path": "snapshots",
+      "id_field": "SnapshotIdentifier",
+      "name_field": "SnapshotIdentifier",
+      "is_global": false,
+      "columns": [
+        { "header": "SNAPSHOT ID", "json_path": "SnapshotIdentifier", "width": 35 },
+        { "header": "STATUS", "json_path": "Status", "width": 12, "color_map": "state" },
+        { "header": "TYPE", "json_path": "SnapshotType", "width": 12 },
+        { "header": "CLUSTER", "json_path": "ClusterIdentifier", "width": 20 },
+        { "header": "CREATED", "json_path": "SnapshotCreateTime", "width": 20 }
+      ],
+      "sub_resources": [],
+      "actions": [
+        { "key": "ctrl+d", "display_name": "Delete Snapshot", "shortcut": "ctrl+d", "sdk_method": "delete_cluster_snapshot", "confirm": { "message": "Delete Redshift snapshot", "default_yes": false, "destructive": true } }
+      ],
+      "api_config": {
+        "protocol": "query",
+        "action": "DescribeClusterSnapshots",
+        "response_root": "/DescribeClusterSnapshotsResponse/DescribeClusterSnapshotsResult/Snapshots/Snapshot",
+        "param_mapping": {
+          "cluster_identifier": "ClusterIdentifier"
+        }
+      },
+      "field_mappings": {
+        "SnapshotIdentifier": { "source": "/SnapshotIdentifier", "default": "-" },
+        "ClusterIdentifier": { "source": "/ClusterIdentifier", "default": "-" },
+        "Status": { "source": "/Status", "default": "-" },
+        "SnapshotType": { "source": "/SnapshotType", "default": "-" },
+        "SnapshotCreateTime": { "source": "/SnapshotCreateTime", "default": "-" }
+      },
+      "action_configs": {
+        "delete_cluster_snapshot": {
+          "action_id": "delete_cluster_snapshot",
+          "protocol": "query",
+          "action": "DeleteClusterSnapshot",
+          "id_param": "SnapshotIdentifier"
+        }
+      }
+    }
+  }
+}

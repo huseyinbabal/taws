@@ -327,6 +327,14 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             target_prefix: Some("AmazonAthena"),
             is_global: false,
         }),
+        "redshift" => Some(ServiceDefinition {
+            signing_name: "redshift",
+            endpoint_prefix: "redshift",
+            api_version: "2012-12-01",
+            protocol: Protocol::Query,
+            target_prefix: None,
+            is_global: false,
+        }),
         _ => None,
     }
 }

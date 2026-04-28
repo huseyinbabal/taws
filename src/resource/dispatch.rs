@@ -71,6 +71,13 @@ fn format_epoch_millis(millis: i64) -> String {
         .unwrap_or_else(|| "-".to_string())
 }
 
+/// Resolve template variables in static param values: {resource_id}, {timestamp}
+fn resolve_static_param_template(template: &str, resource_id: &str, timestamp: &str) -> String {
+    template
+        .replace("{resource_id}", resource_id)
+        .replace("{timestamp}", timestamp)
+}
+
 /// Format epoch milliseconds to human-readable date string (public for log tail UI)
 pub fn format_log_timestamp(millis: i64) -> String {
     format_epoch_millis(millis)
@@ -136,12 +143,10 @@ pub async fn invoke_sdk(
     match (service, method) {
         // S3 list_objects_v2 - requires bucket region resolution and complex folder handling
         ("s3", "list_objects_v2") => {
-            let bucket = params
-                .get("bucket_names")
-                .and_then(|v| v.as_array())
-                .and_then(|arr| arr.first())
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow!("Bucket name required"))?;
+            let bucket = extract_param(params, "bucket_names");
+            if bucket.is_empty() {
+                return Err(anyhow!("Bucket name required"));
+            }
 
             let prefix = params
                 .get("prefix")
@@ -159,7 +164,7 @@ pub async fn invoke_sdk(
                 })
                 .unwrap_or_default();
 
-            let bucket_region = clients.http.get_bucket_region(bucket).await?;
+            let bucket_region = clients.http.get_bucket_region(&bucket).await?;
             debug!("Bucket {} is in region {}", bucket, bucket_region);
 
             let path = if prefix.is_empty() {
@@ -173,7 +178,7 @@ pub async fn invoke_sdk(
 
             let xml = clients
                 .http
-                .rest_xml_request_s3_bucket("GET", bucket, &path, None, &bucket_region)
+                .rest_xml_request_s3_bucket("GET", &bucket, &path, None, &bucket_region)
                 .await?;
             let json = xml_to_json(&xml)?;
 
@@ -388,9 +393,14 @@ async fn invoke_action(
             }
 
             // Add static parameters
+            // Resolve template variables in static params: {resource_id}, {timestamp}
+            let current_timestamp = chrono::Utc::now().format("%Y%m%dT%H%M%S").to_string();
+
             for (key, value) in &action_config.static_params {
-                if let Some(s) = value.as_str() {
-                    params_owned.push((key.clone(), s.to_string()));
+                if let Some(template) = value.as_str() {
+                    let resolved =
+                        resolve_static_param_template(template, resource_id, &current_timestamp);
+                    params_owned.push((key.clone(), resolved));
                 }
             }
 
@@ -861,5 +871,47 @@ mod tests {
     fn test_iam_users_has_api_config() {
         let resource = get_resource("iam-users").unwrap();
         assert!(resource.has_api_config());
+    }
+
+    #[test]
+    fn test_redshift_clusters_has_api_config() {
+        let resource = get_resource("redshift-clusters").unwrap();
+        assert!(resource.has_api_config());
+    }
+
+    #[test]
+    fn test_resolve_static_param_template_replaces_all_placeholders() {
+        let out = resolve_static_param_template(
+            "taws-{resource_id}-{timestamp}",
+            "test-cluster",
+            "20260309T143000",
+        );
+        assert_eq!(out, "taws-test-cluster-20260309T143000");
+    }
+
+    #[test]
+    fn test_resolve_static_param_template_keeps_plain_text() {
+        let out = resolve_static_param_template("fixed-value", "x", "y");
+        assert_eq!(out, "fixed-value");
+    }
+
+    #[test]
+    fn test_extract_param_variants() {
+        use serde_json::json;
+
+        // Test single string value
+        let params_str = json!({ "bucket": "my-bucket" });
+        assert_eq!(extract_param(&params_str, "bucket"), "my-bucket");
+
+        // Test array with single string
+        let params_single_arr = json!({ "bucket": ["only-bucket"] });
+        assert_eq!(extract_param(&params_single_arr, "bucket"), "only-bucket");
+
+        // Test array of strings (takes first)
+        let params_arr = json!({ "bucket": ["first-bucket", "second-bucket"] });
+        assert_eq!(extract_param(&params_arr, "bucket"), "first-bucket");
+
+        // Test missing key
+        assert_eq!(extract_param(&params_str, "nonexistent"), "");
     }
 }
