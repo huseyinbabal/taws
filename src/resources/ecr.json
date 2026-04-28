@@ -14,7 +14,15 @@
         { "header": "URI", "json_path": "repositoryUri", "width": 60 },
         { "header": "CREATED", "json_path": "createdAt", "width": 25 }
       ],
-      "sub_resources": [],
+      "sub_resources": [
+        {
+          "shortcut": "i",
+          "display_name": "Images",
+          "resource_key": "ecr-images",
+          "parent_id_field": "repositoryName",
+          "filter_param": "repository_name"
+        }
+      ],
       "actions": [],
       "api_config": {
         "protocol": "json",
@@ -25,7 +33,54 @@
         "repositoryName": { "source": "/repositoryName", "default": "-" },
         "repositoryArn": { "source": "/repositoryArn", "default": "-" },
         "repositoryUri": { "source": "/repositoryUri", "default": "-" },
-        "createdAt": { "source": "/createdAt", "default": "-" }
+        "createdAt": { "source": "/createdAt", "default": "-", "transform": "format_epoch_millis" }
+      }
+    },
+    "ecr-images": {
+      "display_name": "Images",
+      "service": "ecr",
+      "sdk_method": "describe_images",
+      "sdk_method_params": {},
+      "response_path": "images",
+      "id_field": "ImageDigest",
+      "name_field": "ImageDigest",
+      "is_global": false,
+      "requires_parent": true,
+      "sort_field": "PushedAt",
+      "sort_order": "desc",
+      "columns": [
+        { "header": "IMAGE TAGS", "json_path": "ImageTags", "width": 35 },
+        { "header": "DIGEST", "json_path": "ImageDigest", "width": 68 },
+        { "header": "PUSHED AT", "json_path": "PushedAt", "width": 25},
+        { "header": "SIZE", "json_path": "ImageSize", "width": 14 },
+        { "header": "SCAN STATUS", "json_path": "ScanStatus", "width": 18 }
+      ],
+      "sub_resources": [],
+      "actions": [],
+      "api_config": {
+        "protocol": "json",
+        "action": "DescribeImages",
+        "response_root": "/imageDetails",
+        "static_params": {
+          "filter": { "tagStatus": "ANY" }
+        },
+        "param_mapping": {
+          "repository_name": "repositoryName"
+        },
+        "pagination": {
+          "input_token": "nextToken",
+          "output_token": "/nextToken",
+          "max_results_param": "maxResults",
+          "max_results": 1000
+        }
+      },
+      "field_mappings": {
+        "RepositoryName": { "source": "/repositoryName", "default": "-" },
+        "ImageDigest": { "source": "/imageDigest", "default": "-" },
+        "ImageTags": { "source": "/imageTags", "default": "-", "transform": "array_to_csv" },
+        "PushedAt": { "source": "/imagePushedAt", "default": "-", "transform": "format_epoch_millis" },
+        "ImageSize": { "source": "/imageSizeInBytes", "default": "-", "transform": "format_bytes" },
+        "ScanStatus": { "source": "/imageScanStatus/status", "default": "-" }
       }
     }
   }

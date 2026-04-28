@@ -231,8 +231,23 @@ fn render_dynamic_table(f: &mut Frame, app: &App, area: Rect) {
         .collect();
 
     // Build header from column definitions with left padding
+    // Determine which column is the sort column (sort_field or name_field fallback)
+    let sort_field = resource
+        .sort_field
+        .as_deref()
+        .unwrap_or(&resource.name_field);
+    let sort_arrow = if resource.sort_order.as_deref() == Some("desc") {
+        "↓"
+    } else {
+        "↑"
+    };
     let header_cells = resource.columns.iter().map(|col| {
-        Cell::from(format!(" {}", col.header)).style(
+        let label = if col.json_path == sort_field {
+            format!(" {}{}", col.header, sort_arrow)
+        } else {
+            format!(" {}", col.header)
+        };
+        Cell::from(label).style(
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),

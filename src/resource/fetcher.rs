@@ -130,12 +130,20 @@ pub async fn fetch_resources_paginated(
     // 4. Extract items using response_path
     let mut items = extract_items(&response, &resource_def.response_path)?;
 
-    // 5. Sort items by name_field (or id_field) for consistent ordering
-    let sort_field = &resource_def.name_field;
+    // 5. Sort items by sort_field (or name_field) for consistent ordering
+    let sort_field = resource_def
+        .sort_field
+        .as_deref()
+        .unwrap_or(&resource_def.name_field);
+    let descending = resource_def.sort_order.as_deref() == Some("desc");
     items.sort_by(|a, b| {
         let a_val = a.get(sort_field).and_then(|v| v.as_str()).unwrap_or("");
         let b_val = b.get(sort_field).and_then(|v| v.as_str()).unwrap_or("");
-        a_val.cmp(b_val)
+        if descending {
+            b_val.cmp(a_val)
+        } else {
+            a_val.cmp(b_val)
+        }
     });
 
     // 6. Extract next_token from response (if present)
