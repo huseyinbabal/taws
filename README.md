@@ -93,6 +93,27 @@ sudo mv taws /usr/local/bin/
 2. Extract the zip file
 3. Add the extracted folder to your PATH, or move `taws.exe` to a directory in your PATH
 
+### Nix
+
+```bash
+# Run directly
+nix run github:huseyinbabal/taws
+
+# Try it in a temporary shell
+nix shell github:huseyinbabal/taws
+taws --version
+
+# Build from source
+nix build
+nix run . -- --version
+
+# Development shell with Rust tooling
+nix develop
+cargo build
+```
+
+> **Maintaining the flake?** See [docs/maintaining-nix-flake.md](docs/maintaining-nix-flake.md) for updating versions, hashes, and nixpkgs.
+
 ### Using Cargo
 
 ```bash
