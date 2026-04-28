@@ -678,6 +678,8 @@ mod tests {
         assert!(
             images_sub.is_some(),
             "ECR repositories should have images sub-resource"
+        );
+    }
     fn test_ssm_parameters_has_view_value_action() {
         let resource = get_resource("ssm-parameters").unwrap();
         assert!(
