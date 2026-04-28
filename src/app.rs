@@ -699,7 +699,7 @@ impl App {
                 .collect();
 
             // Sort by score descending (higher score = better match)
-            scored_items.sort_by(|a, b| b.0.cmp(&a.0));
+            scored_items.sort_by_key(|item| std::cmp::Reverse(item.0));
 
             // Extract just the items
             self.filtered_items = scored_items.into_iter().map(|(_, item)| item).collect();
