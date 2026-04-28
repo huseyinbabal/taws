@@ -69,7 +69,9 @@
         },
         "pagination": {
           "input_token": "nextToken",
-          "output_token": "/nextToken"
+          "output_token": "/nextToken",
+          "max_results_param": "maxResults",
+          "max_results": 1000
         }
       },
       "field_mappings": {
