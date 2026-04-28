@@ -12,7 +12,7 @@
       "columns": [
         { "header": "REPOSITORY NAME", "json_path": "repositoryName", "width": 40 },
         { "header": "URI", "json_path": "repositoryUri", "width": 60 },
-        { "header": "CREATED", "json_path": "createdAt", "width": 25  }
+        { "header": "CREATED", "json_path": "createdAt", "width": 25 }
       ],
       "sub_resources": [
         {
@@ -33,7 +33,7 @@
         "repositoryName": { "source": "/repositoryName", "default": "-" },
         "repositoryArn": { "source": "/repositoryArn", "default": "-" },
         "repositoryUri": { "source": "/repositoryUri", "default": "-" },
-        "createdAt": { "source": "/createdAt", "default": "-"}
+        "createdAt": { "source": "/createdAt", "default": "-", "transform": "format_epoch_millis" }
       }
     },
     "ecr-images": {
@@ -75,7 +75,7 @@
         "RepositoryName": { "source": "/repositoryName", "default": "-" },
         "ImageDigest": { "source": "/imageDigest", "default": "-" },
         "ImageTags": { "source": "/imageTags", "default": "-", "transform": "array_to_csv" },
-        "PushedAt": { "source": "/imagePushedAt", "default": "-"},
+        "PushedAt": { "source": "/imagePushedAt", "default": "-", "transform": "format_epoch_millis" },
         "ImageSize": { "source": "/imageSizeInBytes", "default": "-", "transform": "format_bytes" },
         "ScanStatus": { "source": "/imageScanStatus/status", "default": "-" }
       }

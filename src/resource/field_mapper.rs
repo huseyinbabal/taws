@@ -144,22 +144,36 @@ pub fn transform_format_bytes(value: &Value) -> Value {
     Value::String(formatted)
 }
 
-/// Format epoch milliseconds to human-readable date string
+/// Format epoch timestamp to human-readable date string.
+/// Automatically detects seconds vs milliseconds based on magnitude.
+/// Also handles float values (e.g. 1678439551.72 from ECR).
 pub fn transform_format_epoch_millis(value: &Value) -> Value {
-    let millis = match value {
-        Value::Number(n) => n.as_i64().unwrap_or(0),
-        Value::String(s) => s.parse::<i64>().unwrap_or(0),
+    let raw = match value {
+        Value::Number(n) => {
+            if let Some(f) = n.as_f64() {
+                f
+            } else {
+                return Value::String("-".to_string());
+            }
+        }
+        Value::String(s) => match s.parse::<f64>() {
+            Ok(f) => f,
+            Err(_) => return Value::String("-".to_string()),
+        },
         _ => return Value::String("-".to_string()),
     };
 
-    if millis <= 0 {
+    if raw <= 0.0 {
         return Value::String("-".to_string());
     }
+
+    // Values >= 1e11 are treated as milliseconds, smaller values as seconds
+    let secs = if raw >= 1e11 { raw / 1000.0 } else { raw } as i64;
 
     use chrono::{TimeZone, Utc};
 
     let formatted = Utc
-        .timestamp_millis_opt(millis)
+        .timestamp_opt(secs, 0)
         .single()
         .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
         .unwrap_or_else(|| "-".to_string());
