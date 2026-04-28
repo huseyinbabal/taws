@@ -16,7 +16,9 @@
         { "header": "LAST MODIFIED", "json_path": "LastModifiedDate", "width": 25 }
       ],
       "sub_resources": [],
-      "actions": [],
+      "actions": [
+        { "key": "x", "display_name": "View Parameter Value", "shortcut": "x", "sdk_method": "get_parameter", "show_result": true }
+      ],
       "api_config": {
         "protocol": "json",
         "action": "DescribeParameters",

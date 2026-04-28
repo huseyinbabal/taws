@@ -737,6 +737,24 @@ pub async fn execute_action_with_result(
             Ok(json)
         }
 
+        // SSM - Get Parameter Value (with decryption for SecureString)
+        ("ssm", "get_parameter") => {
+            let response = clients
+                .http
+                .json_request(
+                    "ssm",
+                    "GetParameter",
+                    &json!({
+                        "Name": resource_id,
+                        "WithDecryption": true
+                    })
+                    .to_string(),
+                )
+                .await?;
+            let json: Value = serde_json::from_str(&response)?;
+            Ok(json)
+        }
+
         _ => Err(anyhow!(
             "Unknown action with result: {}.{}",
             service,

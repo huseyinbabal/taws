@@ -354,11 +354,12 @@ async fn handle_filter_input(app: &mut App, key: KeyEvent) -> Result<bool> {
             app.filter_active = false;
             app.filters_autocomplete_shown = false;
         }
-        KeyCode::Tab if app.should_show_filters_autocomplete() => {
+        KeyCode::Tab
             // Autocomplete "Filters:" when typing F/Fi/Filters
+            if app.should_show_filters_autocomplete() => {
                 app.filter_text = "Filters: ".to_string();
                 app.filters_autocomplete_shown = false;
-        }
+            }
         KeyCode::Backspace => {
             app.filter_text.pop();
             // Update autocomplete state
