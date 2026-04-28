@@ -35,6 +35,20 @@ impl JsonProtocolHandler {
             body.insert(key.clone(), value.clone());
         }
 
+        // Add pagination params for JSON APIs (sent in request body)
+        if let Some(pagination) = &config.pagination {
+            if let Some(max_param) = &pagination.max_results_param {
+                let max_value = pagination.max_results.unwrap_or(100);
+                body.insert(max_param.clone(), Value::Number(max_value.into()));
+            }
+
+            if let Some(token) = params.get("_page_token").and_then(|v| v.as_str()) {
+                if let Some(input_token) = &pagination.input_token {
+                    body.insert(input_token.clone(), Value::String(token.to_string()));
+                }
+            }
+        }
+
         // Add dynamic params (skip internal params starting with '_')
         if let Value::Object(map) = params {
             for (key, value) in map {

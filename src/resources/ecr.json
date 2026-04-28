@@ -61,14 +61,15 @@
         "protocol": "json",
         "action": "DescribeImages",
         "response_root": "/imageDetails",
+        "static_params": {
+          "filter": { "tagStatus": "ANY" }
+        },
         "param_mapping": {
           "repository_name": "repositoryName"
         },
         "pagination": {
           "input_token": "nextToken",
-          "output_token": "/nextToken",
-          "max_results_param": "maxResults",
-          "max_results": 100
+          "output_token": "/nextToken"
         }
       },
       "field_mappings": {
