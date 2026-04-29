@@ -15,7 +15,22 @@
         { "header": "CREATED", "json_path": "CreationTime", "width": 25 },
         { "header": "UPDATED", "json_path": "LastUpdatedTime", "width": 25 }
       ],
-      "sub_resources": [],
+      "sub_resources": [
+        {
+          "shortcut": "e",
+          "display_name": "Events",
+          "resource_key": "cloudformation-events",
+          "parent_id_field": "StackName",
+          "filter_param": "stack_name"
+        },
+        {
+          "shortcut": "o",
+          "display_name": "Outputs",
+          "resource_key": "cloudformation-outputs",
+          "parent_id_field": "StackName",
+          "filter_param": "stack_name"
+        }
+      ],
       "actions": [
         { "key": "ctrl+d", "display_name": "Delete Stack", "shortcut": "ctrl+d", "sdk_method": "delete_stack", "confirm": { "message": "Delete CloudFormation stack", "default_yes": false, "destructive": true } }
       ],
@@ -39,6 +54,76 @@
           "action": "DeleteStack",
           "id_param": "StackName"
         }
+      }
+    },
+    "cloudformation-events": {
+      "display_name": "Stack Events",
+      "service": "cloudformation",
+      "sdk_method": "describe_stack_events",
+      "sdk_method_params": {},
+      "response_path": "events",
+      "id_field": "EventId",
+      "name_field": "LogicalResourceId",
+      "is_global": false,
+      "requires_parent": true,
+      "preserve_order": true,
+      "columns": [
+        { "header": "TIMESTAMP", "json_path": "Timestamp", "width": 22 },
+        { "header": "LOGICAL ID", "json_path": "LogicalResourceId", "width": 28 },
+        { "header": "STATUS", "json_path": "ResourceStatus", "width": 28, "color_map": "state" },
+        { "header": "TYPE", "json_path": "ResourceType", "width": 30 },
+        { "header": "REASON", "json_path": "ResourceStatusReason", "width": 40 }
+      ],
+      "sub_resources": [],
+      "actions": [],
+      "api_config": {
+        "protocol": "query",
+        "action": "DescribeStackEvents",
+        "response_root": "/DescribeStackEventsResponse/DescribeStackEventsResult/StackEvents/member",
+        "param_mapping": {
+          "stack_name": "StackName"
+        }
+      },
+      "field_mappings": {
+        "EventId": { "source": "/EventId", "default": "-" },
+        "StackName": { "source": "/StackName", "default": "-" },
+        "LogicalResourceId": { "source": "/LogicalResourceId", "default": "-" },
+        "PhysicalResourceId": { "source": "/PhysicalResourceId", "default": "-" },
+        "ResourceType": { "source": "/ResourceType", "default": "-" },
+        "ResourceStatus": { "source": "/ResourceStatus", "default": "-" },
+        "ResourceStatusReason": { "source": "/ResourceStatusReason", "default": "-" },
+        "Timestamp": { "source": "/Timestamp", "default": "-" }
+      }
+    },
+    "cloudformation-outputs": {
+      "display_name": "Stack Outputs",
+      "service": "cloudformation",
+      "sdk_method": "describe_stacks",
+      "sdk_method_params": {},
+      "response_path": "outputs",
+      "id_field": "OutputKey",
+      "name_field": "OutputKey",
+      "is_global": false,
+      "requires_parent": true,
+      "columns": [
+        { "header": "KEY", "json_path": "OutputKey", "width": 50 },
+        { "header": "VALUE", "json_path": "OutputValue", "width": 50 }
+      ],
+      "sub_resources": [],
+      "actions": [],
+      "api_config": {
+        "protocol": "query",
+        "action": "DescribeStacks",
+        "response_root": "/DescribeStacksResponse/DescribeStacksResult/Stacks/member/Outputs/member",
+        "param_mapping": {
+          "stack_name": "StackName"
+        }
+      },
+      "field_mappings": {
+        "OutputKey": { "source": "/OutputKey", "default": "-" },
+        "OutputValue": { "source": "/OutputValue", "default": "-" },
+        "Description": { "source": "/Description", "default": "-" },
+        "ExportName": { "source": "/ExportName", "default": "-" }
       }
     }
   }
