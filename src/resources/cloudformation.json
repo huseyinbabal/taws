@@ -29,6 +29,13 @@
           "resource_key": "cloudformation-outputs",
           "parent_id_field": "StackName",
           "filter_param": "stack_name"
+        },
+        {
+          "shortcut": "r",
+          "display_name": "Resources",
+          "resource_key": "cloudformation-resources",
+          "parent_id_field": "StackName",
+          "filter_param": "stack_name"
         }
       ],
       "actions": [
@@ -124,6 +131,42 @@
         "OutputValue": { "source": "/OutputValue", "default": "-" },
         "Description": { "source": "/Description", "default": "-" },
         "ExportName": { "source": "/ExportName", "default": "-" }
+      }
+    },
+    "cloudformation-resources": {
+      "display_name": "Stack Resources",
+      "service": "cloudformation",
+      "sdk_method": "list_stack_resources",
+      "sdk_method_params": {},
+      "response_path": "resources",
+      "id_field": "LogicalResourceId",
+      "name_field": "LogicalResourceId",
+      "is_global": false,
+      "requires_parent": true,
+      "columns": [
+        { "header": "LOGICAL ID", "json_path": "LogicalResourceId", "width": 30 },
+        { "header": "PHYSICAL ID", "json_path": "PhysicalResourceId", "width": 30 },
+        { "header": "TYPE", "json_path": "ResourceType", "width": 35 },
+        { "header": "STATUS", "json_path": "ResourceStatus", "width": 28, "color_map": "state" },
+        { "header": "UPDATED", "json_path": "LastUpdatedTimestamp", "width": 22 }
+      ],
+      "sub_resources": [],
+      "actions": [],
+      "api_config": {
+        "protocol": "query",
+        "action": "ListStackResources",
+        "response_root": "/ListStackResourcesResponse/ListStackResourcesResult/StackResourceSummaries/member",
+        "param_mapping": {
+          "stack_name": "StackName"
+        }
+      },
+      "field_mappings": {
+        "LogicalResourceId": { "source": "/LogicalResourceId", "default": "-" },
+        "PhysicalResourceId": { "source": "/PhysicalResourceId", "default": "-" },
+        "ResourceType": { "source": "/ResourceType", "default": "-" },
+        "ResourceStatus": { "source": "/ResourceStatus", "default": "-" },
+        "ResourceStatusReason": { "source": "/ResourceStatusReason", "default": "-" },
+        "LastUpdatedTimestamp": { "source": "/LastUpdatedTimestamp", "default": "-" }
       }
     }
   }
