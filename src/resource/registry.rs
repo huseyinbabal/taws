@@ -211,6 +211,10 @@ pub struct ResourceDef {
     /// Used for sub-resources like Log Streams that need a Log Group
     #[serde(default)]
     pub requires_parent: bool,
+
+    /// If true, preserve the order returned by the API instead of sorting alphabetically
+    #[serde(default)]
+    pub preserve_order: bool,
 }
 
 impl ResourceDef {
@@ -641,5 +645,79 @@ mod tests {
             Some("x"),
             "get_parameter should use 'x' shortcut"
         );
+    }
+
+    #[test]
+    fn test_cloudformation_stacks_has_sub_resources() {
+        let resource = get_resource("cloudformation-stacks").unwrap();
+        assert_eq!(resource.display_name, "CloudFormation Stacks");
+
+        let events_sub = resource
+            .sub_resources
+            .iter()
+            .find(|s| s.resource_key == "cloudformation-events");
+        assert!(
+            events_sub.is_some(),
+            "Stacks should have events sub-resource"
+        );
+        assert_eq!(events_sub.unwrap().shortcut, "e");
+
+        let outputs_sub = resource
+            .sub_resources
+            .iter()
+            .find(|s| s.resource_key == "cloudformation-outputs");
+        assert!(
+            outputs_sub.is_some(),
+            "Stacks should have outputs sub-resource"
+        );
+        assert_eq!(outputs_sub.unwrap().shortcut, "o");
+    }
+
+    #[test]
+    fn test_cloudformation_events_resource() {
+        let resource = get_resource("cloudformation-events").unwrap();
+        assert_eq!(resource.display_name, "Stack Events");
+        assert!(
+            resource.requires_parent,
+            "Events should require a parent stack"
+        );
+        assert!(
+            resource.preserve_order,
+            "Events should preserve API order (chronological)"
+        );
+
+        let col_headers: Vec<&str> = resource.columns.iter().map(|c| c.header.as_str()).collect();
+        assert!(col_headers.contains(&"TIMESTAMP"));
+        assert!(col_headers.contains(&"STATUS"));
+        assert!(col_headers.contains(&"LOGICAL ID"));
+    }
+
+    #[test]
+    fn test_cloudformation_outputs_resource() {
+        let resource = get_resource("cloudformation-outputs").unwrap();
+        assert_eq!(resource.display_name, "Stack Outputs");
+        assert!(
+            resource.requires_parent,
+            "Outputs should require a parent stack"
+        );
+
+        let col_headers: Vec<&str> = resource.columns.iter().map(|c| c.header.as_str()).collect();
+        assert!(col_headers.contains(&"KEY"));
+        assert!(col_headers.contains(&"VALUE"));
+    }
+
+    #[test]
+    fn test_cfn_state_colors_exist() {
+        let create_complete = get_color_for_value("state", "CREATE_COMPLETE");
+        assert_eq!(create_complete, Some([0, 255, 0]));
+
+        let create_failed = get_color_for_value("state", "CREATE_FAILED");
+        assert_eq!(create_failed, Some([255, 0, 0]));
+
+        let create_in_progress = get_color_for_value("state", "CREATE_IN_PROGRESS");
+        assert_eq!(create_in_progress, Some([255, 255, 0]));
+
+        let delete_complete = get_color_for_value("state", "DELETE_COMPLETE");
+        assert_eq!(delete_complete, Some([128, 128, 128]));
     }
 }

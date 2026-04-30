@@ -54,6 +54,8 @@ pub struct ParentContext {
     pub item: Value,
     /// Display name for breadcrumb
     pub display_name: String,
+    /// Saved selection index to restore when navigating back
+    pub saved_selected: usize,
 }
 
 /// AWS API Filters for server-side filtering
@@ -1303,6 +1305,7 @@ impl App {
             resource_key: self.current_resource_key.clone(),
             item: selected_item,
             display_name: display,
+            saved_selected: self.selected,
         });
 
         // Navigate
@@ -1326,7 +1329,7 @@ impl App {
 
             // Navigate to parent resource
             self.current_resource_key = parent.resource_key;
-            self.selected = 0;
+            self.selected = parent.saved_selected;
             self.filter_text.clear();
             self.filter_active = false;
 
