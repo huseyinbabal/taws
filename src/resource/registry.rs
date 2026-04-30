@@ -656,14 +656,20 @@ mod tests {
             .sub_resources
             .iter()
             .find(|s| s.resource_key == "cloudformation-events");
-        assert!(events_sub.is_some(), "Stacks should have events sub-resource");
+        assert!(
+            events_sub.is_some(),
+            "Stacks should have events sub-resource"
+        );
         assert_eq!(events_sub.unwrap().shortcut, "e");
 
         let outputs_sub = resource
             .sub_resources
             .iter()
             .find(|s| s.resource_key == "cloudformation-outputs");
-        assert!(outputs_sub.is_some(), "Stacks should have outputs sub-resource");
+        assert!(
+            outputs_sub.is_some(),
+            "Stacks should have outputs sub-resource"
+        );
         assert_eq!(outputs_sub.unwrap().shortcut, "o");
     }
 
@@ -671,8 +677,14 @@ mod tests {
     fn test_cloudformation_events_resource() {
         let resource = get_resource("cloudformation-events").unwrap();
         assert_eq!(resource.display_name, "Stack Events");
-        assert!(resource.requires_parent, "Events should require a parent stack");
-        assert!(resource.preserve_order, "Events should preserve API order (chronological)");
+        assert!(
+            resource.requires_parent,
+            "Events should require a parent stack"
+        );
+        assert!(
+            resource.preserve_order,
+            "Events should preserve API order (chronological)"
+        );
 
         let col_headers: Vec<&str> = resource.columns.iter().map(|c| c.header.as_str()).collect();
         assert!(col_headers.contains(&"TIMESTAMP"));
@@ -684,7 +696,10 @@ mod tests {
     fn test_cloudformation_outputs_resource() {
         let resource = get_resource("cloudformation-outputs").unwrap();
         assert_eq!(resource.display_name, "Stack Outputs");
-        assert!(resource.requires_parent, "Outputs should require a parent stack");
+        assert!(
+            resource.requires_parent,
+            "Outputs should require a parent stack"
+        );
 
         let col_headers: Vec<&str> = resource.columns.iter().map(|c| c.header.as_str()).collect();
         assert!(col_headers.contains(&"KEY"));
