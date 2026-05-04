@@ -766,6 +766,8 @@ fn render_crumb(f: &mut Frame, app: &App, area: Rect) {
 
     let status_text = if let Some(err) = &app.error_message {
         format!("Error: {}", err)
+    } else if let Some(msg) = &app.status_message {
+        msg.clone()
     } else if app.loading {
         "Loading...".to_string()
     } else if app.mode == Mode::Describe {
@@ -773,6 +775,8 @@ fn render_crumb(f: &mut Frame, app: &App, area: Rect) {
             "Type to search | Enter: confirm | Esc: cancel".to_string()
         } else if !app.describe_search_text.is_empty() {
             "n/N: next/prev match | /: new search | Esc: clear".to_string()
+        } else if app.last_action_display_name.is_some() {
+            "j/k: scroll | /: search | c: copy value | q/d/Esc: back".to_string()
         } else {
             "j/k: scroll | /: search | q/d/Esc: back".to_string()
         }
@@ -799,6 +803,8 @@ fn render_crumb(f: &mut Frame, app: &App, area: Rect) {
 
     let style = if app.error_message.is_some() {
         Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+    } else if app.status_message.is_some() {
+        Style::default().fg(Color::Green)
     } else if app.loading {
         Style::default().fg(Color::Yellow)
     } else {
