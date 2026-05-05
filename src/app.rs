@@ -1250,8 +1250,7 @@ impl App {
                         self.status_message = Some(format!("{} copied to clipboard", label));
                     }
                     Err(e) => {
-                        self.error_message =
-                            Some(format!("Failed to copy to clipboard: {}", e));
+                        self.error_message = Some(format!("Failed to copy to clipboard: {}", e));
                     }
                 }
             }
@@ -1959,10 +1958,7 @@ mod tests {
             "VersionId": "abc-123"
         });
         let result = extract_copyable_value("secretsmanager-secrets", &data);
-        assert_eq!(
-            result,
-            Some("{\"key\":\"fake-data\"}".to_string())
-        );
+        assert_eq!(result, Some("{\"key\":\"fake-data\"}".to_string()));
     }
 
     #[test]
