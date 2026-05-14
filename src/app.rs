@@ -154,6 +154,7 @@ pub struct App {
     // UI state
     pub loading: bool,
     pub error_message: Option<String>,
+    pub status_message: Option<String>, // Transient success/info message (not an error)
     pub describe_scroll: usize,
     pub describe_data: Option<Value>, // Full resource details from describe API
     pub last_action_display_name: Option<String>,
@@ -375,6 +376,7 @@ impl App {
             pending_action: None,
             loading: false,
             error_message: None,
+            status_message: None,
             describe_scroll: 0,
             describe_data: None,
             last_action_display_name: None,
@@ -1221,6 +1223,45 @@ impl App {
         self.last_action_display_name = None;
     }
 
+    /// Copy the primary value from the current action result view to the clipboard.
+    /// Only works when viewing an action result (e.g., after pressing 'x' to view a value).
+    /// For SSM parameters, copies the Parameter Value.
+    /// For Secrets Manager secrets, copies the SecretString.
+    pub fn copy_describe_value_to_clipboard(&mut self) {
+        // Only allow copy in action result views (not regular describe)
+        if self.last_action_display_name.is_none() {
+            return;
+        }
+
+        let Some(ref data) = self.describe_data else {
+            self.error_message = Some("No data to copy".to_string());
+            return;
+        };
+
+        let value_to_copy = extract_copyable_value(&self.current_resource_key, data);
+
+        match value_to_copy {
+            Some(text) if !text.is_empty() => {
+                match arboard::Clipboard::new().and_then(|mut cb| cb.set_text(&text)) {
+                    Ok(_) => {
+                        let label = if self.current_resource_key == "ssm-parameters" {
+                            "Parameter value"
+                        } else {
+                            "Secret value"
+                        };
+                        self.status_message = Some(format!("{} copied to clipboard", label));
+                    }
+                    Err(e) => {
+                        self.error_message = Some(format!("Failed to copy to clipboard: {}", e));
+                    }
+                }
+            }
+            _ => {
+                self.error_message = Some("No value found to copy".to_string());
+            }
+        }
+    }
+
     // =========================================================================
     // Resource Navigation
     // =========================================================================
@@ -1801,6 +1842,26 @@ impl App {
     }
 }
 
+/// Extract the copyable value from describe data based on resource type.
+/// Returns None for unsupported resource types.
+fn extract_copyable_value(resource_key: &str, data: &Value) -> Option<String> {
+    match resource_key {
+        "ssm-parameters" => {
+            // SSM GetParameter response: { "Parameter": { "Value": "..." } }
+            data.pointer("/Parameter/Value")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        }
+        "secretsmanager-secrets" => {
+            // GetSecretValue response: { "SecretString": "..." }
+            data.pointer("/SecretString")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1875,5 +1936,61 @@ mod tests {
             filters.display(),
             "Filters: owner=amazon, architecture=arm64"
         );
+    }
+
+    #[test]
+    fn test_extract_copyable_value_ssm_parameter() {
+        let data = serde_json::json!({
+            "Parameter": {
+                "Name": "/app/config-key",
+                "Type": "SecureString",
+                "Value": "fake-data",
+                "Version": 1
+            }
+        });
+        let result = extract_copyable_value("ssm-parameters", &data);
+        assert_eq!(result, Some("fake-data".to_string()));
+    }
+
+    #[test]
+    fn test_extract_copyable_value_secretsmanager() {
+        let data = serde_json::json!({
+            "ARN": "arn:aws:secretsmanager:us-east-1:123456789:secret:my-secret",
+            "Name": "my-secret",
+            "SecretString": "{\"key\":\"fake-data\"}",
+            "VersionId": "abc-123"
+        });
+        let result = extract_copyable_value("secretsmanager-secrets", &data);
+        assert_eq!(result, Some("{\"key\":\"fake-data\"}".to_string()));
+    }
+
+    #[test]
+    fn test_extract_copyable_value_unsupported_resource() {
+        let data = serde_json::json!({"InstanceId": "i-12345"});
+        let result = extract_copyable_value("ec2-instances", &data);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_extract_copyable_value_ssm_missing_value_field() {
+        let data = serde_json::json!({
+            "Parameter": {
+                "Name": "/app/config",
+                "Type": "String"
+            }
+        });
+        let result = extract_copyable_value("ssm-parameters", &data);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_extract_copyable_value_secret_missing_secret_string() {
+        let data = serde_json::json!({
+            "ARN": "arn:aws:secretsmanager:us-east-1:123456789:secret:binary-secret",
+            "Name": "binary-secret",
+            "SecretBinary": "base64data"
+        });
+        let result = extract_copyable_value("secretsmanager-secrets", &data);
+        assert_eq!(result, None);
     }
 }
