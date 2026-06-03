@@ -437,6 +437,9 @@ fn handle_help_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
 }
 
 fn handle_describe_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
+    // Clear transient status message on any keypress
+    app.status_message = None;
+
     // If search input is active, handle text input
     if app.describe_search_active {
         return handle_describe_search_input(app, key);
@@ -498,6 +501,10 @@ fn handle_describe_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
         // Go to bottom
         KeyCode::Char('G') | KeyCode::End => {
             app.describe_scroll_to_bottom(40);
+        }
+        // Copy value to clipboard
+        KeyCode::Char('c') => {
+            app.copy_describe_value_to_clipboard();
         }
         _ => {}
     }
