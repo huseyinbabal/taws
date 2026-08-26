@@ -302,7 +302,10 @@ fn cache_sso_token(config: &SsoConfig, access_token: &str, expires_in: i64) -> R
     let mut hasher = Sha1::new();
     hasher.update(config.sso_start_url.as_bytes());
     let hash = hasher.finalize();
-    let cache_file_name = format!("{:x}.json", hash);
+    let cache_file_name = format!(
+        "{}.json",
+        hash.iter().map(|b| format!("{b:02x}")).collect::<String>()
+    );
     let cache_path = cache_dir.join(&cache_file_name);
 
     fs::write(&cache_path, serde_json::to_string_pretty(&cached_token)?)?;
@@ -488,7 +491,10 @@ pub fn read_cached_token(config: &SsoConfig) -> Option<String> {
     let mut hasher = Sha1::new();
     hasher.update(config.sso_session.as_bytes());
     let hash = hasher.finalize();
-    let cache_file_v2 = format!("{:x}.json", hash);
+    let cache_file_v2 = format!(
+        "{}.json",
+        hash.iter().map(|b| format!("{b:02x}")).collect::<String>()
+    );
     let cache_path_v2 = cache_dir.join(&cache_file_v2);
 
     if let Some(token) = try_read_token_file(&cache_path_v2) {
@@ -503,7 +509,10 @@ pub fn read_cached_token(config: &SsoConfig) -> Option<String> {
     let mut hasher = Sha1::new();
     hasher.update(config.sso_start_url.as_bytes());
     let hash = hasher.finalize();
-    let cache_file_legacy = format!("{:x}.json", hash);
+    let cache_file_legacy = format!(
+        "{}.json",
+        hash.iter().map(|b| format!("{b:02x}")).collect::<String>()
+    );
     let cache_path_legacy = cache_dir.join(&cache_file_legacy);
 
     if let Some(token) = try_read_token_file(&cache_path_legacy) {
