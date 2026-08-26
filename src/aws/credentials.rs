@@ -534,7 +534,10 @@ fn load_from_console_login(profile: &str, login_session: &str) -> Result<Credent
     let mut hasher = Sha256::new();
     hasher.update(login_session.trim().as_bytes());
     let hash = hasher.finalize();
-    let cache_filename = format!("{:x}.json", hash);
+    let cache_filename = format!(
+        "{}.json",
+        hash.iter().map(|b| format!("{b:02x}")).collect::<String>()
+    );
     let cache_file = cache_dir.join(&cache_filename);
 
     if !cache_file.exists() {
@@ -2200,7 +2203,10 @@ region = us-west-2
         let mut hasher = Sha256::new();
         hasher.update(login_session.trim().as_bytes());
         let hash = hasher.finalize();
-        let cache_filename = format!("{:x}.json", hash);
+        let cache_filename = format!(
+            "{}.json",
+            hash.iter().map(|b| format!("{b:02x}")).collect::<String>()
+        );
 
         // Write the cache file
         let cache_file_path = cache_dir.join(&cache_filename);
@@ -2259,7 +2265,10 @@ region = us-west-2
         let mut hasher = Sha256::new();
         hasher.update(login_session.trim().as_bytes());
         let hash = hasher.finalize();
-        let cache_filename = format!("{:x}.json", hash);
+        let cache_filename = format!(
+            "{}.json",
+            hash.iter().map(|b| format!("{b:02x}")).collect::<String>()
+        );
 
         let cache_file_path = cache_dir.join(&cache_filename);
         let mut cache_file = std::fs::File::create(&cache_file_path).unwrap();
