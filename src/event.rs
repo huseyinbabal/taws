@@ -729,11 +729,7 @@ async fn handle_sso_login_mode(app: &mut App, key: KeyEvent) -> Result<bool> {
             }
         }
 
-        SsoLoginState::WaitingForAuth {
-            profile,
-            interval: _,
-            ..
-        } => {
+        SsoLoginState::WaitingForAuth { profile, .. } => {
             match key.code {
                 KeyCode::Esc => {
                     app.sso_state = None;

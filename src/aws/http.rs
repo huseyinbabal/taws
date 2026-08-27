@@ -68,6 +68,8 @@ pub struct ServiceDefinition {
     pub protocol: Protocol,
     /// Target prefix for JSON protocol (e.g., "AWSCognitoIdentityProviderService")
     pub target_prefix: Option<&'static str>,
+    /// The version of the AWS JSON protocol used by the service.
+    pub json_version: &'static str,
     /// Whether this is a global service (uses us-east-1)
     pub is_global: bool,
 }
@@ -94,6 +96,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             protocol: Protocol::Query,
             target_prefix: None,
             is_global: false,
+            json_version: "1.1",
         }),
         "s3" => Some(ServiceDefinition {
             signing_name: "s3",
@@ -101,6 +104,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             api_version: "2006-03-01",
             protocol: Protocol::RestXml,
             target_prefix: None,
+            json_version: "1.1",
             is_global: false,
         }),
         "iam" => Some(ServiceDefinition {
@@ -110,6 +114,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             protocol: Protocol::Query,
             target_prefix: None,
             is_global: true,
+            json_version: "1.1",
         }),
         "lambda" => Some(ServiceDefinition {
             signing_name: "lambda",
@@ -118,12 +123,14 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             protocol: Protocol::RestJson,
             target_prefix: None,
             is_global: false,
+            json_version: "1.1",
         }),
         "rds" => Some(ServiceDefinition {
             signing_name: "rds",
             endpoint_prefix: "rds",
             api_version: "2014-10-31",
             protocol: Protocol::Query,
+            json_version: "1.1",
             target_prefix: None,
             is_global: false,
         }),
@@ -134,6 +141,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             protocol: Protocol::Json,
             target_prefix: Some("DynamoDB_20120810"),
             is_global: false,
+            json_version: "1.0",
         }),
         "ecs" => Some(ServiceDefinition {
             signing_name: "ecs",
@@ -141,6 +149,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             api_version: "2014-11-13",
             protocol: Protocol::Json,
             target_prefix: Some("AmazonEC2ContainerServiceV20141113"),
+            json_version: "1.1",
             is_global: false,
         }),
         "eks" => Some(ServiceDefinition {
@@ -149,6 +158,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             api_version: "2017-11-01",
             protocol: Protocol::RestJson,
             target_prefix: None,
+            json_version: "1.1",
             is_global: false,
         }),
         "cloudformation" => Some(ServiceDefinition {
@@ -157,6 +167,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             api_version: "2010-05-15",
             protocol: Protocol::Query,
             target_prefix: None,
+            json_version: "1.1",
             is_global: false,
         }),
         "cloudwatchlogs" | "logs" => Some(ServiceDefinition {
@@ -165,6 +176,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             api_version: "2014-03-28",
             protocol: Protocol::Json,
             target_prefix: Some("Logs_20140328"),
+            json_version: "1.1",
             is_global: false,
         }),
         "sqs" => Some(ServiceDefinition {
@@ -173,6 +185,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             api_version: "2012-11-05",
             protocol: Protocol::Query,
             target_prefix: None,
+            json_version: "1.1",
             is_global: false,
         }),
         "sns" => Some(ServiceDefinition {
@@ -181,6 +194,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             api_version: "2010-03-31",
             protocol: Protocol::Query,
             target_prefix: None,
+            json_version: "1.1",
             is_global: false,
         }),
         "secretsmanager" => Some(ServiceDefinition {
@@ -189,6 +203,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             api_version: "2017-10-17",
             protocol: Protocol::Json,
             target_prefix: Some("secretsmanager"),
+            json_version: "1.1",
             is_global: false,
         }),
         "ssm" => Some(ServiceDefinition {
@@ -197,6 +212,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             api_version: "2014-11-06",
             protocol: Protocol::Json,
             target_prefix: Some("AmazonSSM"),
+            json_version: "1.1",
             is_global: false,
         }),
         "route53" => Some(ServiceDefinition {
@@ -205,6 +221,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             api_version: "2013-04-01",
             protocol: Protocol::RestXml,
             target_prefix: None,
+            json_version: "1.1",
             is_global: true,
         }),
         "apigateway" => Some(ServiceDefinition {
@@ -212,6 +229,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             endpoint_prefix: "apigateway",
             api_version: "2015-07-09",
             protocol: Protocol::RestJson,
+            json_version: "1.1",
             target_prefix: None,
             is_global: false,
         }),
@@ -220,6 +238,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             endpoint_prefix: "sts",
             api_version: "2011-06-15",
             protocol: Protocol::Query,
+            json_version: "1.1",
             target_prefix: None,
             is_global: false,
         }),
@@ -228,6 +247,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             endpoint_prefix: "api.ecr",
             api_version: "2015-09-21",
             protocol: Protocol::Json,
+            json_version: "1.1",
             target_prefix: Some("AmazonEC2ContainerRegistry_V20150921"),
             is_global: false,
         }),
@@ -236,6 +256,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             endpoint_prefix: "kms",
             api_version: "2014-11-01",
             protocol: Protocol::Json,
+            json_version: "1.1",
             target_prefix: Some("TrentService"),
             is_global: false,
         }),
@@ -246,6 +267,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             protocol: Protocol::Query,
             target_prefix: None,
             is_global: false,
+            json_version: "1.1",
         }),
         "cloudfront" => Some(ServiceDefinition {
             signing_name: "cloudfront",
@@ -254,6 +276,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             protocol: Protocol::RestXml,
             target_prefix: None,
             is_global: true,
+            json_version: "1.1",
         }),
         "acm" => Some(ServiceDefinition {
             signing_name: "acm",
@@ -262,12 +285,14 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             protocol: Protocol::Json,
             target_prefix: Some("CertificateManager"),
             is_global: false,
+            json_version: "1.1",
         }),
         "eventbridge" | "events" => Some(ServiceDefinition {
             signing_name: "events",
             endpoint_prefix: "events",
             api_version: "2015-10-07",
             protocol: Protocol::Json,
+            json_version: "1.1",
             target_prefix: Some("AWSEvents"),
             is_global: false,
         }),
@@ -277,12 +302,14 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             api_version: "2015-07-09",
             protocol: Protocol::Json,
             target_prefix: Some("CodePipeline_20150709"),
+            json_version: "1.1",
             is_global: false,
         }),
         "codebuild" => Some(ServiceDefinition {
             signing_name: "codebuild",
             endpoint_prefix: "codebuild",
             api_version: "2016-10-06",
+            json_version: "1.1",
             protocol: Protocol::Json,
             target_prefix: Some("CodeBuild_20161006"),
             is_global: false,
@@ -293,6 +320,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             api_version: "2016-04-18",
             protocol: Protocol::Json,
             target_prefix: Some("AWSCognitoIdentityProviderService"),
+            json_version: "1.1",
             is_global: false,
         }),
         "cloudtrail" => Some(ServiceDefinition {
@@ -301,6 +329,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             api_version: "2013-11-01",
             protocol: Protocol::Json,
             target_prefix: Some("com.amazonaws.cloudtrail.v20131101.CloudTrail_20131101"),
+            json_version: "1.1",
             is_global: false,
         }),
         "autoscaling" => Some(ServiceDefinition {
@@ -309,6 +338,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             api_version: "2011-01-01",
             protocol: Protocol::Query,
             target_prefix: None,
+            json_version: "1.1",
             is_global: false,
         }),
         "elasticloadbalancing" | "elb" | "elbv2" => Some(ServiceDefinition {
@@ -317,6 +347,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             api_version: "2015-12-01",
             protocol: Protocol::Query,
             target_prefix: None,
+            json_version: "1.1",
             is_global: false,
         }),
         "athena" => Some(ServiceDefinition {
@@ -325,6 +356,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             api_version: "2017-05-18",
             protocol: Protocol::Json,
             target_prefix: Some("AmazonAthena"),
+            json_version: "1.1",
             is_global: false,
         }),
         "redshift" => Some(ServiceDefinition {
@@ -332,6 +364,7 @@ pub fn get_service(name: &str) -> Option<ServiceDefinition> {
             endpoint_prefix: "redshift",
             api_version: "2012-12-01",
             protocol: Protocol::Query,
+            json_version: "1.1",
             target_prefix: None,
             is_global: false,
         }),
@@ -521,7 +554,7 @@ impl AwsHttpClient {
         headers.insert("X-Amz-Target".to_string(), target_header);
         headers.insert(
             "Content-Type".to_string(),
-            "application/x-amz-json-1.1".to_string(),
+            format!("application/x-amz-json-{}", service.json_version),
         );
 
         self.signed_request(&service, "POST", &url, body, Some(headers))
