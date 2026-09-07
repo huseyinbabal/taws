@@ -366,14 +366,10 @@ async fn handle_filter_input(app: &mut App, key: KeyEvent) -> Result<bool> {
             app.filters_autocomplete_shown = app.should_show_filters_autocomplete();
             app.apply_filter();
         }
-        KeyCode::Char('/') => {
-            // Pressing '/' again clears and restarts the filter (including AWS filters)
-            if app.start_new_filter() {
-                // AWS filters were cleared, need to refresh to remove server-side filter
-                app.refresh_current().await?;
-            }
-            app.apply_filter();
-        }
+        // '/' gets no special treatment here. Entering the filter already goes through
+        // `start_new_filter`, so there is nothing left to reset, and treating it as an
+        // ordinary character is what makes path-style names such as `my/secret` or
+        // `/prod/db` searchable.
         KeyCode::Char(c) => {
             app.filter_text.push(c);
             // Update autocomplete state
