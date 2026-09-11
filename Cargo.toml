@@ -58,6 +58,10 @@ fuzzy-matcher = "0.3.7"
 async-trait = "0.1.89"
 arboard = "3.6"
 
+# Ctrl-C must not kill taws while an SSM session owns the terminal (no stdlib API for this)
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 dirs = "6.0"
 tempfile = "3.24.0"

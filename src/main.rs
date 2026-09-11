@@ -1446,6 +1446,30 @@ where
     }
 }
 
+/// Ignores SIGINT for as long as the guard lives, restoring the previous handler on drop.
+///
+/// While an SSM session runs the TUI is suspended, so the terminal is back in canonical
+/// mode and Ctrl-C is delivered as SIGINT to the entire foreground process group, taws
+/// included. Cancelling a remote command would therefore also kill taws.
+#[cfg(unix)]
+struct IgnoreSigint(libc::sighandler_t);
+
+#[cfg(unix)]
+impl IgnoreSigint {
+    fn install() -> Self {
+        // SAFETY: `signal` only swaps this process's own SIGINT disposition.
+        Self(unsafe { libc::signal(libc::SIGINT, libc::SIG_IGN) })
+    }
+}
+
+#[cfg(unix)]
+impl Drop for IgnoreSigint {
+    fn drop(&mut self) {
+        // SAFETY: restores exactly the handler captured by `install`.
+        unsafe { libc::signal(libc::SIGINT, self.0) };
+    }
+}
+
 /// Execute SSM connect by suspending TUI and running aws ssm start-session
 fn execute_ssm_connect<B: Backend>(
     terminal: &mut Terminal<B>,
@@ -1472,18 +1496,38 @@ where
     std::io::stdout().flush()?;
 
     // Run aws ssm start-session
-    let status = std::process::Command::new("aws")
-        .args([
-            "ssm",
-            "start-session",
-            "--target",
-            &request.instance_id,
-            "--region",
-            &request.region,
-            "--profile",
-            &request.profile,
-        ])
-        .status();
+    let mut command = std::process::Command::new("aws");
+    command.args([
+        "ssm",
+        "start-session",
+        "--target",
+        &request.instance_id,
+        "--region",
+        &request.region,
+        "--profile",
+        &request.profile,
+    ]);
+
+    // The child keeps the default handler so Ctrl-C can still abort a session that is
+    // stuck connecting. Once the session is up, the AWS CLI and session-manager-plugin
+    // ignore SIGINT themselves and hand Ctrl-C to the remote shell as input.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // SAFETY: `signal` is async-signal-safe, so it is valid between fork and exec.
+        unsafe {
+            command.pre_exec(|| {
+                libc::signal(libc::SIGINT, libc::SIG_DFL);
+                Ok(())
+            });
+        }
+    }
+
+    let status = {
+        #[cfg(unix)]
+        let _ignore_sigint = IgnoreSigint::install();
+        command.status()
+    };
 
     match status {
         Ok(exit_status) => {

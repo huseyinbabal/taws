@@ -2819,6 +2819,7 @@ dependencies = [
  "crossterm",
  "dirs",
  "fuzzy-matcher",
+ "libc",
  "open",
  "quick-xml",
  "ratatui",
