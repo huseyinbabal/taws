@@ -239,4 +239,159 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert_eq!(items[0]["instanceId"], "i-12345");
     }
+
+    fn parse_mapped(resource_key: &str, xml: &str) -> Vec<Value> {
+        let resource = crate::resource::registry::get_resource(resource_key).unwrap();
+        let (items, _) = QueryProtocolHandler
+            .parse_items(xml, resource.api_config.as_ref().unwrap())
+            .unwrap();
+        items
+            .iter()
+            .map(|item| {
+                crate::resource::field_mapper::apply_field_mappings(item, &resource.field_mappings)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_parse_autoscaling_instances_from_group_response() {
+        let xml = r#"
+<DescribeAutoScalingGroupsResponse xmlns="https://autoscaling.amazonaws.com/doc/2011-01-01/">
+  <DescribeAutoScalingGroupsResult>
+    <AutoScalingGroups>
+      <member>
+        <AutoScalingGroupName>my-asg</AutoScalingGroupName>
+        <Instances>
+          <member>
+            <ProtectedFromScaleIn>false</ProtectedFromScaleIn>
+            <AvailabilityZone>us-east-1c</AvailabilityZone>
+            <LaunchTemplate />
+            <InstanceId>i-1234567890abcdef0</InstanceId>
+            <InstanceType>t3.micro</InstanceType>
+            <HealthStatus>Healthy</HealthStatus>
+            <LifecycleState>InService</LifecycleState>
+          </member>
+          <member>
+            <ProtectedFromScaleIn>true</ProtectedFromScaleIn>
+            <AvailabilityZone>us-east-1a</AvailabilityZone>
+            <LaunchTemplate>
+              <LaunchTemplateId>lt-0123456789abcdef0</LaunchTemplateId>
+              <Version>7</Version>
+            </LaunchTemplate>
+            <InstanceId>i-0fedcba9876543210</InstanceId>
+            <InstanceType>t3.small</InstanceType>
+            <HealthStatus>Unhealthy</HealthStatus>
+            <LifecycleState>Terminating:Wait</LifecycleState>
+          </member>
+        </Instances>
+      </member>
+    </AutoScalingGroups>
+  </DescribeAutoScalingGroupsResult>
+</DescribeAutoScalingGroupsResponse>"#;
+
+        let items = parse_mapped("autoscaling-instances", xml);
+
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0]["InstanceId"], "i-1234567890abcdef0");
+        assert_eq!(items[0]["LifecycleState"], "InService");
+        assert_eq!(items[0]["HealthStatus"], "Healthy");
+        assert_eq!(items[0]["LaunchTemplateVersion"], "-");
+        assert_eq!(items[0]["ProtectedFromScaleIn"], "No");
+        assert_eq!(items[1]["LifecycleState"], "Terminating:Wait");
+        assert_eq!(items[1]["LaunchTemplateVersion"], "7");
+        assert_eq!(items[1]["ProtectedFromScaleIn"], "Yes");
+    }
+
+    #[test]
+    fn test_parse_autoscaling_single_instance_group() {
+        let xml = r#"
+<DescribeAutoScalingGroupsResponse xmlns="https://autoscaling.amazonaws.com/doc/2011-01-01/">
+  <DescribeAutoScalingGroupsResult>
+    <AutoScalingGroups>
+      <member>
+        <Instances>
+          <member>
+            <InstanceId>i-1234567890abcdef0</InstanceId>
+            <LifecycleState>Pending</LifecycleState>
+          </member>
+        </Instances>
+      </member>
+    </AutoScalingGroups>
+  </DescribeAutoScalingGroupsResult>
+</DescribeAutoScalingGroupsResponse>"#;
+
+        let items = parse_mapped("autoscaling-instances", xml);
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["InstanceId"], "i-1234567890abcdef0");
+    }
+
+    #[test]
+    fn test_parse_autoscaling_activities() {
+        let xml = r#"
+<DescribeScalingActivitiesResponse xmlns="https://ec2.amazonaws.com/doc/2011-01-01/">
+  <DescribeScalingActivitiesResult>
+    <Activities>
+      <member>
+        <StatusCode>Failed</StatusCode>
+        <Progress>0</Progress>
+        <ActivityId>12345678-1234-1234-1234-123456789012</ActivityId>
+        <StartTime>2019-04-12T17:32:07.882Z</StartTime>
+        <Description>Launching a new EC2 instance.</Description>
+        <EndTime>2019-04-12T17:32:08Z</EndTime>
+        <StatusMessage>The image id 'ami-xxxxxxxx' does not exist.</StatusMessage>
+      </member>
+    </Activities>
+  </DescribeScalingActivitiesResult>
+</DescribeScalingActivitiesResponse>"#;
+
+        let items = parse_mapped("autoscaling-activities", xml);
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["StatusCode"], "Failed");
+        assert_eq!(items[0]["StartTime"], "2019-04-12T17:32:07.882Z");
+        assert_eq!(
+            items[0]["StatusMessage"],
+            "The image id 'ami-xxxxxxxx' does not exist."
+        );
+    }
+
+    #[test]
+    fn test_parse_autoscaling_instance_refreshes() {
+        let xml = r#"
+<DescribeInstanceRefreshesResponse xmlns="https://autoscaling.amazonaws.com/doc/2011-01-01/">
+  <DescribeInstanceRefreshesResult>
+    <InstanceRefreshes>
+      <member>
+        <InstanceRefreshId>08b91cf7-8fa6-48af-b6a6-d227f40f1b9b</InstanceRefreshId>
+        <Status>InProgress</Status>
+        <StatusReason>Waiting for instances to warm up before continuing.</StatusReason>
+        <PercentageComplete>50</PercentageComplete>
+        <InstancesToUpdate>0</InstancesToUpdate>
+        <StartTime>2023-06-13T16:46:52Z</StartTime>
+      </member>
+    </InstanceRefreshes>
+  </DescribeInstanceRefreshesResult>
+</DescribeInstanceRefreshesResponse>"#;
+
+        let items = parse_mapped("autoscaling-instance-refreshes", xml);
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["Status"], "InProgress");
+        assert_eq!(items[0]["PercentageComplete"], "50");
+        assert_eq!(items[0]["InstancesToUpdate"], "0");
+        assert_eq!(items[0]["EndTime"], "-");
+    }
+
+    #[test]
+    fn test_parse_autoscaling_no_instance_refreshes() {
+        let xml = r#"
+<DescribeInstanceRefreshesResponse xmlns="https://autoscaling.amazonaws.com/doc/2011-01-01/">
+  <DescribeInstanceRefreshesResult>
+    <InstanceRefreshes/>
+  </DescribeInstanceRefreshesResult>
+</DescribeInstanceRefreshesResponse>"#;
+
+        assert!(parse_mapped("autoscaling-instance-refreshes", xml).is_empty());
+    }
 }

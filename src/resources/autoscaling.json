@@ -17,7 +17,11 @@
         { "header": "INSTANCES", "json_path": "InstanceCount", "width": 12 },
         { "header": "AZ", "json_path": "AvailabilityZones", "width": 20 }
       ],
-      "sub_resources": [],
+      "sub_resources": [
+        { "shortcut": "i", "display_name": "Instances", "resource_key": "autoscaling-instances", "parent_id_field": "AutoScalingGroupName", "filter_param": "auto_scaling_group_names" },
+        { "shortcut": "a", "display_name": "Activities", "resource_key": "autoscaling-activities", "parent_id_field": "AutoScalingGroupName", "filter_param": "auto_scaling_group_name" },
+        { "shortcut": "r", "display_name": "Instance Refreshes", "resource_key": "autoscaling-instance-refreshes", "parent_id_field": "AutoScalingGroupName", "filter_param": "auto_scaling_group_name" }
+      ],
       "actions": [
         { "key": "ctrl+d", "display_name": "Delete Group", "shortcut": "ctrl+d", "sdk_method": "delete_auto_scaling_group", "confirm": { "message": "Delete Auto Scaling group", "default_yes": false, "destructive": true } }
       ],
@@ -45,6 +49,181 @@
           }
         }
       }
+    },
+    "autoscaling-instances": {
+      "display_name": "Auto Scaling Instances",
+      "service": "autoscaling",
+      "sdk_method": "describe_auto_scaling_groups",
+      "sdk_method_params": {},
+      "response_path": "instances",
+      "id_field": "InstanceId",
+      "name_field": "InstanceId",
+      "is_global": false,
+      "requires_parent": true,
+      "columns": [
+        { "header": "INSTANCE ID", "json_path": "InstanceId", "width": 22 },
+        { "header": "LIFECYCLE", "json_path": "LifecycleState", "width": 20, "color_map": "autoscaling-status" },
+        { "header": "HEALTH", "json_path": "HealthStatus", "width": 12, "color_map": "autoscaling-status" },
+        { "header": "AZ", "json_path": "AvailabilityZone", "width": 16 },
+        { "header": "TYPE", "json_path": "InstanceType", "width": 14 },
+        { "header": "LT VERSION", "json_path": "LaunchTemplateVersion", "width": 12 },
+        { "header": "PROTECTED", "json_path": "ProtectedFromScaleIn", "width": 10 }
+      ],
+      "sub_resources": [],
+      "actions": [],
+      "api_config": {
+        "protocol": "query",
+        "action": "DescribeAutoScalingGroups",
+        "response_root": "/DescribeAutoScalingGroupsResponse/DescribeAutoScalingGroupsResult/AutoScalingGroups/member/Instances/member",
+        "param_mapping": {
+          "auto_scaling_group_names": "AutoScalingGroupNames.member.1"
+        }
+      },
+      "field_mappings": {
+        "InstanceId": { "source": "/InstanceId", "default": "-" },
+        "LifecycleState": { "source": "/LifecycleState", "default": "-" },
+        "HealthStatus": { "source": "/HealthStatus", "default": "-" },
+        "AvailabilityZone": { "source": "/AvailabilityZone", "default": "-" },
+        "InstanceType": { "source": "/InstanceType", "default": "-" },
+        "LaunchTemplateVersion": { "source": "/LaunchTemplate/Version", "default": "-" },
+        "ProtectedFromScaleIn": { "source": "/ProtectedFromScaleIn", "default": "-", "transform": "bool_to_yes_no" }
+      }
+    },
+    "autoscaling-activities": {
+      "display_name": "Scaling Activities",
+      "service": "autoscaling",
+      "sdk_method": "describe_scaling_activities",
+      "sdk_method_params": {},
+      "response_path": "activities",
+      "id_field": "ActivityId",
+      "name_field": "Description",
+      "is_global": false,
+      "requires_parent": true,
+      "preserve_order": true,
+      "columns": [
+        { "header": "START TIME", "json_path": "StartTime", "width": 22 },
+        { "header": "STATUS", "json_path": "StatusCode", "width": 26, "color_map": "autoscaling-status" },
+        { "header": "DESCRIPTION", "json_path": "Description", "width": 45 },
+        { "header": "MESSAGE", "json_path": "StatusMessage", "width": 45 },
+        { "header": "END TIME", "json_path": "EndTime", "width": 22 }
+      ],
+      "sub_resources": [],
+      "actions": [],
+      "api_config": {
+        "protocol": "query",
+        "action": "DescribeScalingActivities",
+        "response_root": "/DescribeScalingActivitiesResponse/DescribeScalingActivitiesResult/Activities/member",
+        "param_mapping": {
+          "auto_scaling_group_name": "AutoScalingGroupName"
+        }
+      },
+      "field_mappings": {
+        "ActivityId": { "source": "/ActivityId", "default": "-" },
+        "StartTime": { "source": "/StartTime", "default": "-" },
+        "EndTime": { "source": "/EndTime", "default": "-" },
+        "StatusCode": { "source": "/StatusCode", "default": "-" },
+        "StatusMessage": { "source": "/StatusMessage", "default": "-" },
+        "Description": { "source": "/Description", "default": "-" },
+        "Cause": { "source": "/Cause", "default": "-" },
+        "Progress": { "source": "/Progress", "default": "-" }
+      }
+    },
+    "autoscaling-instance-refreshes": {
+      "display_name": "Instance Refreshes",
+      "service": "autoscaling",
+      "sdk_method": "describe_instance_refreshes",
+      "sdk_method_params": {},
+      "response_path": "instance_refreshes",
+      "id_field": "InstanceRefreshId",
+      "name_field": "InstanceRefreshId",
+      "is_global": false,
+      "requires_parent": true,
+      "preserve_order": true,
+      "columns": [
+        { "header": "START TIME", "json_path": "StartTime", "width": 22 },
+        { "header": "STATUS", "json_path": "Status", "width": 20, "color_map": "autoscaling-status" },
+        { "header": "PERCENT", "json_path": "PercentageComplete", "width": 9 },
+        { "header": "TO UPDATE", "json_path": "InstancesToUpdate", "width": 10 },
+        { "header": "REASON", "json_path": "StatusReason", "width": 50 },
+        { "header": "END TIME", "json_path": "EndTime", "width": 22 },
+        { "header": "REFRESH ID", "json_path": "InstanceRefreshId", "width": 38 }
+      ],
+      "sub_resources": [],
+      "actions": [],
+      "api_config": {
+        "protocol": "query",
+        "action": "DescribeInstanceRefreshes",
+        "response_root": "/DescribeInstanceRefreshesResponse/DescribeInstanceRefreshesResult/InstanceRefreshes/member",
+        "param_mapping": {
+          "auto_scaling_group_name": "AutoScalingGroupName"
+        }
+      },
+      "field_mappings": {
+        "InstanceRefreshId": { "source": "/InstanceRefreshId", "default": "-" },
+        "Status": { "source": "/Status", "default": "-" },
+        "StatusReason": { "source": "/StatusReason", "default": "-" },
+        "PercentageComplete": { "source": "/PercentageComplete", "default": "-" },
+        "InstancesToUpdate": { "source": "/InstancesToUpdate", "default": "-" },
+        "StartTime": { "source": "/StartTime", "default": "-" },
+        "EndTime": { "source": "/EndTime", "default": "-" }
+      }
     }
+  },
+  "color_maps": {
+    "autoscaling-status": [
+      { "value": "InService", "color": [0, 255, 0] },
+      { "value": "Healthy", "color": [0, 255, 0] },
+      { "value": "Successful", "color": [0, 255, 0] },
+      { "value": "RootVolumeReplaced", "color": [0, 255, 0] },
+      { "value": "RollbackSuccessful", "color": [255, 165, 0] },
+      { "value": "Unhealthy", "color": [255, 0, 0] },
+      { "value": "Failed", "color": [255, 0, 0] },
+      { "value": "RollbackFailed", "color": [255, 0, 0] },
+      { "value": "Quarantined", "color": [255, 0, 0] },
+      { "value": "Pending", "color": [255, 255, 0] },
+      { "value": "Pending:Wait", "color": [255, 255, 0] },
+      { "value": "Pending:Proceed", "color": [255, 255, 0] },
+      { "value": "InProgress", "color": [255, 255, 0] },
+      { "value": "Baking", "color": [255, 255, 0] },
+      { "value": "Cancelling", "color": [255, 255, 0] },
+      { "value": "RollbackInProgress", "color": [255, 255, 0] },
+      { "value": "PreInService", "color": [255, 255, 0] },
+      { "value": "WaitingForInstanceId", "color": [255, 255, 0] },
+      { "value": "WaitingForInstanceWarmup", "color": [255, 255, 0] },
+      { "value": "WaitingForELBConnectionDraining", "color": [255, 255, 0] },
+      { "value": "MidLifecycleAction", "color": [255, 255, 0] },
+      { "value": "Terminating", "color": [255, 255, 0] },
+      { "value": "Terminating:Wait", "color": [255, 255, 0] },
+      { "value": "Terminating:Proceed", "color": [255, 255, 0] },
+      { "value": "Detaching", "color": [255, 255, 0] },
+      { "value": "EnteringStandby", "color": [255, 255, 0] },
+      { "value": "PendingSpotBidPlacement", "color": [255, 255, 0] },
+      { "value": "WaitingForSpotInstanceRequestId", "color": [255, 255, 0] },
+      { "value": "WaitingForSpotInstanceId", "color": [255, 255, 0] },
+      { "value": "WaitingForConnectionDraining", "color": [255, 255, 0] },
+      { "value": "WaitingForInPlaceUpdateToStart", "color": [255, 255, 0] },
+      { "value": "WaitingForInPlaceUpdateToFinalize", "color": [255, 255, 0] },
+      { "value": "InPlaceUpdateInProgress", "color": [255, 255, 0] },
+      { "value": "ReplacingRootVolume", "color": [255, 255, 0] },
+      { "value": "ReplacingRootVolume:Wait", "color": [255, 255, 0] },
+      { "value": "ReplacingRootVolume:Proceed", "color": [255, 255, 0] },
+      { "value": "Warmed:Pending", "color": [255, 255, 0] },
+      { "value": "Warmed:Pending:Wait", "color": [255, 255, 0] },
+      { "value": "Warmed:Pending:Proceed", "color": [255, 255, 0] },
+      { "value": "Warmed:Pending:Retained", "color": [255, 255, 0] },
+      { "value": "Warmed:Terminating", "color": [255, 255, 0] },
+      { "value": "Warmed:Terminating:Wait", "color": [255, 255, 0] },
+      { "value": "Warmed:Terminating:Proceed", "color": [255, 255, 0] },
+      { "value": "Warmed:Terminating:Retained", "color": [255, 255, 0] },
+      { "value": "Standby", "color": [128, 128, 128] },
+      { "value": "Terminating:Retained", "color": [128, 128, 128] },
+      { "value": "Warmed:Terminated", "color": [128, 128, 128] },
+      { "value": "Warmed:Stopped", "color": [128, 128, 128] },
+      { "value": "Warmed:Running", "color": [128, 128, 128] },
+      { "value": "Warmed:Hibernated", "color": [128, 128, 128] },
+      { "value": "Cancelled", "color": [128, 128, 128] },
+      { "value": "Terminated", "color": [128, 128, 128] },
+      { "value": "Detached", "color": [128, 128, 128] }
+    ]
   }
 }

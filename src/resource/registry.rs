@@ -784,4 +784,81 @@ mod tests {
         let delete_complete = get_color_for_value("state", "DELETE_COMPLETE");
         assert_eq!(delete_complete, Some([128, 128, 128]));
     }
+
+    #[test]
+    fn test_autoscaling_groups_has_sub_resources() {
+        let resource = get_resource("autoscaling-groups").unwrap();
+
+        for (key, shortcut) in [
+            ("autoscaling-instances", "i"),
+            ("autoscaling-activities", "a"),
+            ("autoscaling-instance-refreshes", "r"),
+        ] {
+            let sub = resource
+                .sub_resources
+                .iter()
+                .find(|s| s.resource_key == key)
+                .unwrap_or_else(|| panic!("Groups should have {} sub-resource", key));
+            assert_eq!(sub.shortcut, shortcut);
+            assert_eq!(sub.parent_id_field, "AutoScalingGroupName");
+
+            let child = get_resource(key).unwrap();
+            assert!(child.requires_parent, "{} should require a parent", key);
+            let api_config = child.api_config.as_ref().unwrap();
+            assert!(
+                api_config.param_mapping.contains_key(&sub.filter_param),
+                "{} should map the parent filter to an API parameter",
+                key
+            );
+        }
+    }
+
+    #[test]
+    fn test_autoscaling_instances_filters_by_group_name_list() {
+        let resource = get_resource("autoscaling-instances").unwrap();
+        let api_config = resource.api_config.as_ref().unwrap();
+        assert_eq!(
+            api_config.action.as_deref(),
+            Some("DescribeAutoScalingGroups")
+        );
+        assert_eq!(
+            api_config.param_mapping.get("auto_scaling_group_names"),
+            Some(&"AutoScalingGroupNames.member.1".to_string())
+        );
+        assert!(api_config
+            .response_root
+            .as_deref()
+            .unwrap()
+            .ends_with("/AutoScalingGroups/member/Instances/member"));
+    }
+
+    #[test]
+    fn test_autoscaling_time_ordered_resources_preserve_order() {
+        for key in ["autoscaling-activities", "autoscaling-instance-refreshes"] {
+            let resource = get_resource(key).unwrap();
+            assert!(resource.preserve_order, "{} should keep API order", key);
+        }
+    }
+
+    #[test]
+    fn test_autoscaling_status_colors_exist() {
+        for (value, color) in [
+            ("InService", [0, 255, 0]),
+            ("Successful", [0, 255, 0]),
+            ("Failed", [255, 0, 0]),
+            ("Unhealthy", [255, 0, 0]),
+            ("Quarantined", [255, 0, 0]),
+            ("Warmed:Running", [128, 128, 128]),
+            ("InProgress", [255, 255, 0]),
+            ("Terminating", [255, 255, 0]),
+            ("Cancelled", [128, 128, 128]),
+        ] {
+            assert_eq!(
+                get_color_for_value("autoscaling-status", value),
+                Some(color),
+                "missing color for {}",
+                value
+            );
+        }
+    }
 }
