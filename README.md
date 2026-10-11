@@ -446,7 +446,7 @@ taws supports **30 AWS services** with **51 resource types** covering 95%+ of ty
 | | Lambda | Functions |
 | | ECS | Clusters, Services, Tasks |
 | | EKS | Clusters |
-| | Auto Scaling | Auto Scaling Groups |
+| | Auto Scaling | Auto Scaling Groups, Instances, Activities, Instance Refreshes |
 | **Storage** | S3 | Buckets |
 | **Database** | RDS | Instances, Snapshots |
 | | DynamoDB | Tables |
